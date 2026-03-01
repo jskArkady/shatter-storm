@@ -130,13 +130,14 @@ const BRICK_COLS = 38, BRICK_PAD = 2;
 const BRICK_OFFSET_TOP = 58, BRICK_OFFSET_LEFT = 16;
 const BRICK_W = (W - BRICK_OFFSET_LEFT * 2 - BRICK_PAD * (BRICK_COLS - 1)) / BRICK_COLS;
 const BRICK_H = 16;
-const ITEM_SIZE = 24, ITEM_FALL_SPEED = 2.8;
+const ITEM_SIZE = 24, ITEM_FALL_SPEED = 5.6;
 const MAX_BALLS = 100, START_LIVES = 3;
 const COMBO_WINDOW_MS = 1800;
 const MULTI_BALL_COUNT = 15;
 const EFFECT_DURATION_MS = 10000;
-const RANKING_KEY = 'shatterStorm_v6';
-const MAX_RANKING = 10;
+const RANKING_KEY = 'shatterStorm_v7';
+const MAX_RANKING = 5;
+const MAX_PARTICLES = 500;
 const MEGA_BALL_SCALE = 3;
 const BULLETS_PER_STAGE = 10;
 const BULLET_SPEED = 14;
@@ -303,7 +304,10 @@ function playSound(type) {
 // ═══════════════════════════════════════════════════════════════
 let particles = [];
 function spawnParticles(x, y, color, count = 15) {
-    for (let i = 0; i < count; i++) {
+    const canAdd = MAX_PARTICLES - particles.length;
+    if (canAdd <= 0) return;
+    const n = Math.min(count, canAdd);
+    for (let i = 0; i < n; i++) {
         particles.push({
             x, y,
             vx: rand(-6, 6), vy: rand(-7, 3),
@@ -313,7 +317,10 @@ function spawnParticles(x, y, color, count = 15) {
     }
 }
 function spawnCelebration(count = 120) {
-    for (let i = 0; i < count; i++) {
+    const canAdd = MAX_PARTICLES - particles.length;
+    if (canAdd <= 0) return;
+    const n = Math.min(count, canAdd);
+    for (let i = 0; i < n; i++) {
         particles.push({
             x: rand(0, W), y: rand(-120, H * 0.3),
             vx: rand(-3, 3), vy: rand(1, 5),
@@ -324,8 +331,11 @@ function spawnCelebration(count = 120) {
     }
 }
 function spawnExplosion(x, y, color, count = 40) {
-    for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2;
+    const canAdd = MAX_PARTICLES - particles.length;
+    if (canAdd <= 0) return;
+    const n = Math.min(count, canAdd);
+    for (let i = 0; i < n; i++) {
+        const angle = (i / n) * Math.PI * 2;
         const speed = rand(3, 10);
         particles.push({
             x, y,
@@ -336,11 +346,18 @@ function spawnExplosion(x, y, color, count = 40) {
     }
 }
 function updateParticles() {
-    for (let i = particles.length - 1; i >= 0; i--) {
+    let i = 0;
+    while (i < particles.length) {
         const p = particles[i];
         p.x += p.vx; p.y += p.vy;
         p.vy += 0.12; p.life -= p.decay;
-        if (p.life <= 0) particles.splice(i, 1);
+        if (p.life <= 0) {
+            // swap-and-pop: O(1) removal, order doesn't matter for particles
+            particles[i] = particles[particles.length - 1];
+            particles.pop();
+        } else {
+            i++;
+        }
     }
 }
 function renderParticles() {
@@ -598,7 +615,7 @@ function saveRanking(ranking) {
 }
 function addRankingEntry(name, sc, lvl) {
     const ranking = loadRanking();
-    ranking.push({ name, score: sc, level: lvl, date: new Date().toLocaleDateString('ko-KR') });
+    ranking.push({ name, score: sc, level: lvl, date: new Date().toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) });
     ranking.sort((a, b) => b.score - a.score);
     if (ranking.length > MAX_RANKING) ranking.length = MAX_RANKING;
     saveRanking(ranking); return ranking;
@@ -701,7 +718,9 @@ function loadLevel(idx) {
     bullets = [];
     bulletsLeft = BULLETS_PER_STAGE;
     effects = { widePaddle: 0, fireBall: 0, slowBall: 0, megaBall: 0 };
+    paddle.w = PADDLE_BASE_W;
     paddle.targetW = PADDLE_BASE_W;
+    paddle.x = W / 2;
     combo = 0;
     spawnInitialBall();
 }
@@ -867,7 +886,7 @@ function applyItem(item) {
         }
         case 'WIDE_PADDLE':
             effects.widePaddle = EFFECT_DURATION_MS;
-            paddle.targetW = PADDLE_BASE_W * 2.5;
+            paddle.targetW = Math.min(paddle.targetW * 1.5, W * 0.66);
             break;
         case 'FIRE_BALL':
             effects.fireBall = EFFECT_DURATION_MS;
@@ -1087,6 +1106,9 @@ function update() {
 // RENDERING
 // ═══════════════════════════════════════════════════════════════
 function renderBricks() {
+    // Cache gradients per row — same row = same colors, recalculate only when brickColor changes
+    const gradCache = new Map();
+
     for (const br of bricks) {
         if (!br.alive) continue;
         const color = brickColor(br);
@@ -1095,10 +1117,15 @@ function renderBricks() {
         if (br.flashTimer > 0) {
             ctx.fillStyle = '#fff';
         } else {
-            const grd = ctx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
-            const hue = theme.brickHue(br.row);
-            grd.addColorStop(0, color);
-            grd.addColorStop(1, hsl(hue, theme.brickSat, theme.brickLight - 18));
+            const cacheKey = `${br.row}_${br.hp}`;
+            let grd = gradCache.get(cacheKey);
+            if (!grd) {
+                grd = ctx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
+                const hue = theme.brickHue(br.row);
+                grd.addColorStop(0, color);
+                grd.addColorStop(1, hsl(hue, theme.brickSat, theme.brickLight - 18));
+                gradCache.set(cacheKey, grd);
+            }
             ctx.fillStyle = grd;
         }
 
@@ -1318,7 +1345,7 @@ function renderMenuScreen() {
     neonText('🏆  RANKING', rbX + rbW / 2, rbY + rbH / 2, 22, theme.text2, 10);
 
     ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Mouse: Move Paddle  |  Click / Space: Shoot  |  ESC / P: Pause  |  Q: Quit & Save', W / 2, H * 0.52);
+    ctx.fillText('Mouse: Move Paddle  |  Click / Space: Shoot  |  ESC / P: Pause  |  Q: Quit', W / 2, H * 0.52);
     ctx.fillText('🔴Multi Ball  ◄►Wide  🔥Fire  🌟Mega', W / 2, H * 0.57);
 
     // Theme selector
@@ -1391,10 +1418,10 @@ function renderPausedScreen() {
     ctx.shadowColor = '#ff4466'; ctx.shadowBlur = hoverQ ? 14 : 5;
     ctx.beginPath(); roundRect(ctx, rbX, qbY, rbW, rbH, 8); ctx.fill(); ctx.stroke();
     ctx.shadowBlur = 0;
-    neonText('✕  QUIT & SAVE', W / 2, qbY + rbH / 2, 18, '#ff4466', 6);
+    neonText('✕  QUIT', W / 2, qbY + rbH / 2, 18, '#ff4466', 6);
 
     ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('ESC / P: Resume  |  Q: Quit & Save Score', W / 2, H * 0.82);
+    ctx.fillText('ESC / P: Resume  |  Q: Quit', W / 2, H * 0.82);
 }
 
 function renderStageIntro() {
@@ -1451,7 +1478,7 @@ function renderNameInput() {
 
 function renderRanking() {
     ctx.fillStyle = 'rgba(0,0,0,0.88)'; ctx.fillRect(0, 0, W, H);
-    neonText('🏆 TOP 10 RANKING', W / 2, 55, 34, theme.text3, 16);
+    neonText('🏆 TOP 5 RANKING', W / 2, 55, 34, theme.text3, 16);
 
     const ranking = loadRanking();
     const sy = 110, rh = 42;

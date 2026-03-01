@@ -75,7 +75,7 @@ Built with vanilla HTML5 Canvas, CSS, and JavaScript. No dependencies.
 
 ## 🏆 Ranking
 
-Top 10 scores are saved in `localStorage`. View rankings from the main menu.
+Top 5 scores are saved in `localStorage`. View rankings from the main menu. Each entry shows the date and time (hour:minute).
 
 ---
 
