@@ -1,0 +1,35 @@
+# Local workflow artifacts
+tasks/
+
+# Dependencies
+node_modules/
+
+# Build and cache outputs
+dist/
+build/
+coverage/
+.cache/
+.parcel-cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

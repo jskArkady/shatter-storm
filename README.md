@@ -24,15 +24,14 @@ Open `index.html` in any modern browser. No server or build tools required.
 
 ## 🎨 Themes
 
-7 selectable visual themes, each with unique color palettes:
+6 selectable world themes, each with distinct background motion, brick materials, trails, and HUD styling:
 
-- **Neon** — Cyan & magenta cyberpunk
-- **Retro** — Warm wheat & classic arcade tones
-- **Inferno** — Deep reds & fiery orange
-- **Cosmic** — Purple & pink nebula
-- **Ocean** — Deep sea blue & cyan
-- **Aurora** — Northern lights green & emerald
-- **Sakura** — Cherry blossom pink & rose
+- **Neon** — Original laser-grid cyber arcade
+- **Black Site** — Tactical radar sweep and wireframe panels
+- **Abyss** — Deep sea caustics and submerged glow
+- **Forge** — Furnace haze and forged metal surfaces
+- **Shrine Bloom** — Ink wash, lacquer tiles, and drifting petals
+- **Storm Circuit** — Electric rain and overloaded grid flashes
 
 ## ⚡ Items
 
@@ -43,7 +42,7 @@ Items drop from destroyed bricks (45% chance):
 | ●●● Multi Ball | Spawns 15 extra balls |
 | ◄► Wide Paddle | Expands paddle for 10 seconds |
 | 🔥 Fire Ball | Ball pierces through bricks for 10 seconds |
-| 🌟 Mega Ball | Giant ball that destroys everything for 8 seconds |
+| 🌟 Mega Ball | Giant ball for 8 seconds |
 
 ## 🏗️ Stage Design
 
@@ -67,7 +66,7 @@ Items drop from destroyed bricks (45% chance):
 brick-breaker/
 ├── index.html   — HTML shell (canvas + file links)
 ├── style.css    — Minimal stylesheet
-├── game.js      — All game logic (~1600 lines)
+├── game.js      — All game logic (~2500 lines)
 └── README.md
 ```
 

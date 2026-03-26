@@ -1,3 +1,8 @@
+:root {
+    --theme-bg1: #07071e;
+    --theme-bg2: #140a30;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -5,15 +10,26 @@
 }
 
 body {
-    background: #000;
+    background: linear-gradient(180deg, var(--theme-bg1), var(--theme-bg2));
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
+    min-height: 100svh;
     overflow: hidden;
     font-family: 'Segoe UI', system-ui, sans-serif;
+    transition: background 180ms ease;
 }
 
-canvas {
+#game {
     display: block;
+    width: min(100vw, calc(100svh * 4 / 3));
+    max-width: 1600px;
+    height: auto;
+    max-height: 100svh;
+    aspect-ratio: 4 / 3;
+    cursor: none;
+}
+
+body.is-ui-cursor #game {
+    cursor: default;
 }
