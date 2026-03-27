@@ -251,6 +251,17 @@ const BULLET_SPEED = 14;
 const BULLET_W = 4, BULLET_H = 14;
 
 const NEON = ['#ff0055','#ff6600','#ffcc00','#00ff88','#00ccff','#8855ff','#ff33cc'];
+const ShatterLogic = globalThis.ShatterLogic;
+
+if (!ShatterLogic) throw new Error('ShatterLogic failed to load');
+
+const {
+    getBrickRowRange,
+    getBrickScore,
+    loadRankingStore,
+    resolveFrameOutcome,
+    saveRankingStore,
+} = ShatterLogic;
 
 // ═══════════════════════════════════════════════════════════════
 // ITEM DEFINITIONS
@@ -1064,11 +1075,22 @@ function brickColor(br) {
 // ═══════════════════════════════════════════════════════════════
 // RANKING SYSTEM
 // ═══════════════════════════════════════════════════════════════
+let rankingStorageNotice = '';
+
+function setRankingStorageNotice(error) {
+    if (error === 'invalid_data') rankingStorageNotice = 'Ranking data was reset.';
+    else if (error === 'unavailable') rankingStorageNotice = 'Ranking storage is unavailable in this browser.';
+    else rankingStorageNotice = '';
+}
+
 function loadRanking() {
-    try { const d = localStorage.getItem(RANKING_KEY); return d ? JSON.parse(d) : []; } catch { return []; }
+    const { ranking, error } = loadRankingStore(globalThis.localStorage, RANKING_KEY);
+    setRankingStorageNotice(error);
+    return ranking;
 }
 function saveRanking(ranking) {
-    try { localStorage.setItem(RANKING_KEY, JSON.stringify(ranking)); } catch {}
+    const { error } = saveRankingStore(globalThis.localStorage, RANKING_KEY, ranking);
+    setRankingStorageNotice(error);
 }
 function addRankingEntry(name, sc, lvl) {
     const ranking = loadRanking();
@@ -1089,6 +1111,7 @@ let state = 'MENU';
 let score = 0, lives = 0, level = 0;
 let combo = 0, lastHitTime = 0, maxCombo = 0;
 let balls = [], bricks = [], items = [], bullets = [];
+let brickRows = [];
 let bulletsLeft = BULLETS_PER_STAGE;
 let paddle = { x: W / 2, w: PADDLE_BASE_W, targetW: PADDLE_BASE_W };
 let mouseX = W / 2, mouseY = H / 2;
@@ -1158,17 +1181,20 @@ function generateEndlessLevel(stageIdx) {
 function loadLevel(idx) {
     const def = idx < LEVELS.length ? LEVELS[idx] : generateEndlessLevel(idx);
     bricks = [];
+    brickRows = Array.from({ length: def.rows.length }, () => []);
     for (let r = 0; r < def.rows.length; r++) {
         for (let c = 0; c < def.rows[r].length; c++) {
             const hp = def.rows[r][c];
             if (hp <= 0) continue;
-            bricks.push({
+            const brick = {
                 x: BRICK_OFFSET_LEFT + c * (BRICK_W + BRICK_PAD),
                 y: BRICK_OFFSET_TOP + r * (BRICK_H + BRICK_PAD),
                 w: BRICK_W, h: BRICK_H,
                 hp, maxHp: hp, row: r,
                 alive: true, flashTimer: 0,
-            });
+            };
+            bricks.push(brick);
+            brickRows[r].push(brick);
         }
     }
     items = [];
@@ -1310,7 +1336,7 @@ function destroyBrick(br, scoreMultiplier = 1) {
     br.alive = false; br.hp = 0;
     const bx = br.x + br.w / 2, by = br.y + br.h / 2;
     spawnParticles(bx, by, brickColor(br), 15);
-    const pts = Math.floor(([0, 10, 25, 50][br.maxHp] || 10) * scoreMultiplier);
+    const pts = Math.floor(getBrickScore(br.maxHp) * scoreMultiplier);
     score += pts;
     addFloatingText(bx, by, `+${pts}`, theme.text3);
     // Items can drop even from ability-triggered destructions
@@ -1453,59 +1479,63 @@ function update() {
         }
 
         // Bricks
-        for (const br of bricks) {
-            if (!br.alive) continue;
-            const hit = ballRectCollision(b, br);
-            if (!hit) continue;
+        const ballRows = getBrickRowRange({
+            y: b.y,
+            radius: effectiveR,
+            brickOffsetTop: BRICK_OFFSET_TOP,
+            brickHeight: BRICK_H,
+            brickPad: BRICK_PAD,
+            rowCount: brickRows.length,
+        });
 
-            const isFire = effects.fireBall > 0;
-            if (!isFire) {
-                reflectBall(b, hit.nx, hit.ny);
-                b.x += hit.nx * hit.overlap;
-                b.y += hit.ny * hit.overlap;
+        for (let row = ballRows.start; row <= ballRows.end; row++) {
+            for (const br of brickRows[row]) {
+                if (!br.alive) continue;
+                const hit = ballRectCollision(b, br);
+                if (!hit) continue;
+
+                const isFire = effects.fireBall > 0;
+                if (!isFire) {
+                    reflectBall(b, hit.nx, hit.ny);
+                    b.x += hit.nx * hit.overlap;
+                    b.y += hit.ny * hit.overlap;
+                }
+
+                br.hp--;
+                br.flashTimer = 6;
+                playSound('brick');
+
+                // Combo
+                const now = performance.now();
+                combo = (now - lastHitTime < COMBO_WINDOW_MS) ? combo + 1 : 1;
+                lastHitTime = now;
+                if (combo > maxCombo) maxCombo = combo;
+                comboDisplay.value = combo;
+                comboDisplay.scale = 1.8;
+                comboDisplay.alpha = 1;
+                comboDisplay.label = getComboLabel(combo);
+
+                // Score
+                const base = getBrickScore(br.maxHp);
+                const comboMult = 1 + Math.min(combo, 30) * 0.3;
+                const pts = Math.floor(base * comboMult);
+                score += pts;
+                addFloatingText(br.x + br.w / 2, br.y + br.h / 2, `+${pts}`, theme.text3);
+
+                if (combo >= 5) shake.intensity = Math.min(combo * 1.2, 20);
+
+                if (br.hp <= 0) {
+                    br.alive = false;
+                    spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), isMega ? 25 : 18);
+                    tryDropItem(br.x + br.w / 2, br.y + br.h / 2);
+                }
+                row = ballRows.end;
+                break;
             }
-
-            br.hp--;
-            br.flashTimer = 6;
-            playSound('brick');
-
-            // Combo
-            const now = performance.now();
-            combo = (now - lastHitTime < COMBO_WINDOW_MS) ? combo + 1 : 1;
-            lastHitTime = now;
-            if (combo > maxCombo) maxCombo = combo;
-            comboDisplay.value = combo;
-            comboDisplay.scale = 1.8;
-            comboDisplay.alpha = 1;
-            comboDisplay.label = getComboLabel(combo);
-
-            // Score
-            const hpBonus = [0, 10, 25, 50];
-            const base = hpBonus[br.maxHp] || 10;
-            const comboMult = 1 + Math.min(combo, 30) * 0.3;
-            const pts = Math.floor(base * comboMult);
-            score += pts;
-            addFloatingText(br.x + br.w / 2, br.y + br.h / 2, `+${pts}`, theme.text3);
-
-            if (combo >= 5) shake.intensity = Math.min(combo * 1.2, 20);
-
-            if (br.hp <= 0) {
-                br.alive = false;
-                spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), isMega ? 25 : 18);
-                tryDropItem(br.x + br.w / 2, br.y + br.h / 2);
-            }
-            break;
         }
 
         // Lost
         if (b.y - effectiveR > H) balls.splice(i, 1);
-    }
-
-    // All balls lost
-    if (balls.length === 0) {
-        lives--; combo = 0;
-        if (lives <= 0) { playSound('gameOver'); state = 'GAME_OVER'; }
-        else { playSound('die'); spawnInitialBall(); }
     }
 
     // Items
@@ -1526,33 +1556,64 @@ function update() {
         bl.y += bl.vy;
         if (bl.y + BULLET_H < 0) { bullets.splice(i, 1); continue; }
         let hit = false;
-        for (const br of bricks) {
-            if (!br.alive) continue;
-            if (bl.x > br.x - BULLET_W / 2 && bl.x < br.x + br.w + BULLET_W / 2 &&
-                bl.y > br.y && bl.y < br.y + br.h) {
-                br.hp--;
-                br.flashTimer = 6;
-                playSound('brick');
-                if (br.hp <= 0) {
-                    spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), 12);
-                    const pts = [0, 10, 25, 50][br.maxHp] || 10;
-                    score += pts;
-                    addFloatingText(br.x + br.w / 2, br.y + br.h / 2, `+${pts}`, theme.text3);
-                    br.alive = false;
-                    tryDropItem(br.x + br.w / 2, br.y + br.h / 2);
+        const bulletRows = getBrickRowRange({
+            y: bl.y + BULLET_H / 2,
+            radius: BULLET_H / 2,
+            brickOffsetTop: BRICK_OFFSET_TOP,
+            brickHeight: BRICK_H,
+            brickPad: BRICK_PAD,
+            rowCount: brickRows.length,
+        });
+        for (let row = bulletRows.start; row <= bulletRows.end; row++) {
+            for (const br of brickRows[row]) {
+                if (!br.alive) continue;
+                if (bl.x > br.x - BULLET_W / 2 && bl.x < br.x + br.w + BULLET_W / 2 &&
+                    bl.y > br.y && bl.y < br.y + br.h) {
+                    br.hp--;
+                    br.flashTimer = 6;
+                    playSound('brick');
+                    if (br.hp <= 0) {
+                        spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), 12);
+                        const pts = getBrickScore(br.maxHp);
+                        score += pts;
+                        addFloatingText(br.x + br.w / 2, br.y + br.h / 2, `+${pts}`, theme.text3);
+                        br.alive = false;
+                        tryDropItem(br.x + br.w / 2, br.y + br.h / 2);
+                    }
+                    hit = true;
+                    row = bulletRows.end;
+                    break;
                 }
-                hit = true;
-                break;
             }
         }
         if (hit) { bullets.splice(i, 1); }
     }
 
-    // Stage clear
-    if (bricks.every(b => !b.alive)) {
+    const frameOutcome = resolveFrameOutcome({
+        allBricksCleared: bricks.every(b => !b.alive),
+        ballsRemaining: balls.length,
+        lives,
+    });
+
+    if (frameOutcome.state === 'STAGE_CLEAR') {
+        if (frameOutcome.clearItems) items = [];
         playSound('levelClear');
         spawnCelebration(140);
         state = 'STAGE_CLEAR'; stageTimer = 120;
+        return;
+    }
+
+    if (frameOutcome.state === 'RESPAWN') {
+        lives = frameOutcome.lives;
+        combo = 0;
+        playSound('die');
+        spawnInitialBall();
+    } else if (frameOutcome.state === 'GAME_OVER') {
+        lives = frameOutcome.lives;
+        combo = 0;
+        playSound('gameOver');
+        state = 'GAME_OVER';
+        return;
     }
 
     for (const br of bricks) { if (br.flashTimer > 0) br.flashTimer--; }
@@ -1997,6 +2058,15 @@ function neonText(text, x, y, size, color, glow = 15) {
     ctx.restore();
 }
 
+function renderRankingStorageNotice(y) {
+    if (!rankingStorageNotice) return;
+    ctx.fillStyle = '#ffb366';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(rankingStorageNotice, W / 2, y);
+}
+
 // UI button rects (computed during render)
 let themeButtons = [];
 let startButton = null;
@@ -2387,6 +2457,7 @@ function renderMenuScreen() {
     ctx.font = '13px sans-serif';
     ctx.fillText('Mouse: Move Paddle  |  Click / Space: Shoot  |  ESC / P: Pause  |  Q: Quit', W / 2, H * 0.41);
     ctx.fillText('Worlds change visuals, not rules.', W / 2, H * 0.45);
+    renderRankingStorageNotice(H * 0.44);
 
     const helpW = 920;
     const helpH = 84;
@@ -2483,6 +2554,7 @@ function renderGameOver() {
     if (isHighScore(score)) neonText('🏆 NEW HIGH SCORE! Click or Enter', W / 2, H * 0.64, 20, '#00ff88', 12);
     else neonText('Click or Enter to continue', W / 2, H * 0.64, 20, '#fff', 8);
     ctx.globalAlpha = 1;
+    renderRankingStorageNotice(H * 0.73);
 }
 
 function renderNameInput() {
@@ -2500,6 +2572,7 @@ function renderNameInput() {
     ctx.fillText(nameInput + cursor, W / 2, iy + ih / 2);
 
     neonText(`Score: ${score.toLocaleString()}`, W / 2, H * 0.6, 22, theme.text2, 8);
+    renderRankingStorageNotice(H * 0.65);
     const blink = Math.sin(frameCount * 0.06) * 0.4 + 0.6;
     ctx.globalAlpha = blink;
     neonText('Press ENTER to confirm', W / 2, H * 0.7, 17, '#00ff88', 6);
@@ -2548,6 +2621,7 @@ function renderRanking() {
 
     const blink = Math.sin(frameCount * 0.06) * 0.4 + 0.6;
     ctx.globalAlpha = blink;
+    renderRankingStorageNotice(H - 72);
     neonText('Click or Enter to return to menu', W / 2, H - 45, 15, theme.accent, 6);
     ctx.globalAlpha = 1;
 }
