@@ -259,6 +259,7 @@ const {
     getBrickRowRange,
     getBrickScore,
     loadRankingStore,
+    pickMultiBallSource,
     resolveFrameOutcome,
     saveRankingStore,
 } = ShatterLogic;
@@ -1359,7 +1360,7 @@ function applyItem(item) {
         case 'MULTI_BALL': {
             playSound('multiBall');
             shake.intensity = 14;
-            const src = balls[0] || { x: W / 2, y: H / 2 };
+            const src = pickMultiBallSource(balls, { x: W / 2, y: H / 2 });
             const count = Math.min(MULTI_BALL_COUNT, MAX_BALLS - balls.length);
             for (let i = 0; i < count; i++) {
                 const angle = (i / count) * Math.PI * 1.5 - Math.PI * 0.75;

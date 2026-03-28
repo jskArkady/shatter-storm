@@ -5,6 +5,7 @@ const {
     getBrickRowRange,
     getBrickScore,
     loadRankingStore,
+    pickMultiBallSource,
     resolveFrameOutcome,
     saveRankingStore,
 } = require('../game-rules.js');
@@ -89,5 +90,18 @@ test('getBrickRowRange expands to adjacent rows when the ball spans a row bounda
             rowCount: 39,
         }),
         { start: 0, end: 1 },
+    );
+});
+
+test('pickMultiBallSource chooses a random existing ball position', () => {
+    const balls = [
+        { x: 100, y: 200 },
+        { x: 300, y: 400 },
+        { x: 500, y: 600 },
+    ];
+
+    assert.deepEqual(
+        pickMultiBallSource(balls, { x: 800, y: 900 }, () => 0.5),
+        { x: 300, y: 400 },
     );
 });

@@ -49,6 +49,19 @@
         }
     }
 
+    function pickMultiBallSource(balls, fallback, random = Math.random) {
+        if (Array.isArray(balls) && balls.length > 0) {
+            const index = Math.min(
+                balls.length - 1,
+                Math.floor(random() * balls.length),
+            );
+            const source = balls[index];
+            return { x: source.x, y: source.y };
+        }
+
+        return { x: fallback.x, y: fallback.y };
+    }
+
     function resolveFrameOutcome({ allBricksCleared, ballsRemaining, lives }) {
         if (allBricksCleared) {
             return { state: 'STAGE_CLEAR', lives, respawn: false, clearItems: true };
@@ -84,6 +97,7 @@
         getBrickRowRange,
         getBrickScore,
         loadRankingStore,
+        pickMultiBallSource,
         resolveFrameOutcome,
         saveRankingStore,
     };
