@@ -9,6 +9,16 @@
 
     const BRICK_SCORE_BY_HP = [0, 10, 25, 50, 80, 115, 155, 200, 250];
 
+    function countLevelBricks(rows) {
+        let count = 0;
+        for (const row of rows) {
+            for (const cell of row) {
+                if (cell > 0) count++;
+            }
+        }
+        return count;
+    }
+
     function getBrickScore(maxHp) {
         return BRICK_SCORE_BY_HP[maxHp] ?? BRICK_SCORE_BY_HP[BRICK_SCORE_BY_HP.length - 1];
     }
@@ -94,6 +104,7 @@
     }
 
     return {
+        countLevelBricks,
         getBrickRowRange,
         getBrickScore,
         loadRankingStore,

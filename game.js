@@ -256,6 +256,7 @@ const ShatterLogic = globalThis.ShatterLogic;
 if (!ShatterLogic) throw new Error('ShatterLogic failed to load');
 
 const {
+    countLevelBricks,
     getBrickRowRange,
     getBrickScore,
     loadRankingStore,
@@ -1113,6 +1114,8 @@ let score = 0, lives = 0, level = 0;
 let combo = 0, lastHitTime = 0, maxCombo = 0;
 let balls = [], bricks = [], items = [], bullets = [];
 let brickRows = [];
+let stageIntroBrickCount = 0;
+let stageIntroBrickSnapshot = null;
 let bulletsLeft = BULLETS_PER_STAGE;
 let paddle = { x: W / 2, w: PADDLE_BASE_W, targetW: PADDLE_BASE_W };
 let mouseX = W / 2, mouseY = H / 2;
@@ -1179,10 +1182,25 @@ function generateEndlessLevel(stageIdx) {
     return { speed: base.speed + (stageIdx - 10) * 0.03, rows };
 }
 
+function createStageLayerCanvas() {
+    const layer = document.createElement('canvas');
+    layer.width = W;
+    layer.height = H;
+    return layer;
+}
+
+function buildStageIntroSnapshot() {
+    const layer = createStageLayerCanvas();
+    const layerCtx = layer.getContext('2d');
+    renderBricks(layerCtx);
+    return layer;
+}
+
 function loadLevel(idx) {
     const def = idx < LEVELS.length ? LEVELS[idx] : generateEndlessLevel(idx);
     bricks = [];
     brickRows = Array.from({ length: def.rows.length }, () => []);
+    stageIntroBrickCount = countLevelBricks(def.rows);
     for (let r = 0; r < def.rows.length; r++) {
         for (let c = 0; c < def.rows[r].length; c++) {
             const hp = def.rows[r][c];
@@ -1207,6 +1225,7 @@ function loadLevel(idx) {
     paddle.x = W / 2;
     combo = 0;
     spawnInitialBall();
+    stageIntroBrickSnapshot = buildStageIntroSnapshot();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1623,7 +1642,7 @@ function update() {
 // ═══════════════════════════════════════════════════════════════
 // RENDERING
 // ═══════════════════════════════════════════════════════════════
-function getBrickFillStyle(gradCache, br, color) {
+function getBrickFillStyle(targetCtx, gradCache, br, color) {
     if (br.flashTimer > 0) return '#fff';
 
     const cacheKey = `${theme.brickStyle}_${br.row}_${br.hp}`;
@@ -1631,7 +1650,7 @@ function getBrickFillStyle(gradCache, br, color) {
     if (grd) return grd;
 
     const hue = theme.brickHue(br.row);
-    grd = ctx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
+    grd = targetCtx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
 
     switch (theme.brickStyle) {
         case 'wireframe':
@@ -1668,88 +1687,88 @@ function getBrickFillStyle(gradCache, br, color) {
     return grd;
 }
 
-function renderBrickDetails(br, color, r) {
+function renderBrickDetails(targetCtx, br, color, r) {
     if (br.flashTimer > 0) return;
 
     switch (theme.brickStyle) {
         case 'glass':
-            ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(br.x + r + 2, br.y + 3);
-            ctx.lineTo(br.x + br.w - r - 2, br.y + 3);
-            ctx.stroke();
+            targetCtx.strokeStyle = 'rgba(255,255,255,0.22)';
+            targetCtx.lineWidth = 1;
+            targetCtx.beginPath();
+            targetCtx.moveTo(br.x + r + 2, br.y + 3);
+            targetCtx.lineTo(br.x + br.w - r - 2, br.y + 3);
+            targetCtx.stroke();
             break;
         case 'wireframe':
-            ctx.strokeStyle = `rgba(${hexToRgb(theme.accent)},0.75)`;
-            ctx.lineWidth = 1.1;
-            ctx.beginPath();
-            roundRect(ctx, br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 2);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(br.x + 5, br.y + br.h / 2);
-            ctx.lineTo(br.x + br.w - 5, br.y + br.h / 2);
-            ctx.stroke();
+            targetCtx.strokeStyle = `rgba(${hexToRgb(theme.accent)},0.75)`;
+            targetCtx.lineWidth = 1.1;
+            targetCtx.beginPath();
+            roundRect(targetCtx, br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 2);
+            targetCtx.stroke();
+            targetCtx.beginPath();
+            targetCtx.moveTo(br.x + 5, br.y + br.h / 2);
+            targetCtx.lineTo(br.x + br.w - 5, br.y + br.h / 2);
+            targetCtx.stroke();
             break;
         case 'wetGlass':
-            ctx.fillStyle = 'rgba(255,255,255,0.16)';
-            ctx.fillRect(br.x + 4, br.y + 3, br.w * 0.18, br.h - 6);
-            ctx.beginPath();
-            ctx.arc(br.x + br.w - 7, br.y + 6, 2.2, 0, Math.PI * 2);
-            ctx.fill();
+            targetCtx.fillStyle = 'rgba(255,255,255,0.16)';
+            targetCtx.fillRect(br.x + 4, br.y + 3, br.w * 0.18, br.h - 6);
+            targetCtx.beginPath();
+            targetCtx.arc(br.x + br.w - 7, br.y + 6, 2.2, 0, Math.PI * 2);
+            targetCtx.fill();
             break;
         case 'forgedMetal':
-            ctx.fillStyle = 'rgba(255,210,120,0.28)';
-            ctx.fillRect(br.x + 2, br.y + 2, br.w - 4, 2);
-            ctx.fillStyle = 'rgba(0,0,0,0.25)';
-            ctx.fillRect(br.x + 2, br.y + br.h - 4, br.w - 4, 2);
+            targetCtx.fillStyle = 'rgba(255,210,120,0.28)';
+            targetCtx.fillRect(br.x + 2, br.y + 2, br.w - 4, 2);
+            targetCtx.fillStyle = 'rgba(0,0,0,0.25)';
+            targetCtx.fillRect(br.x + 2, br.y + br.h - 4, br.w - 4, 2);
             break;
         case 'lacquerTile':
-            ctx.strokeStyle = 'rgba(255,244,248,0.42)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            roundRect(ctx, br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 4);
-            ctx.stroke();
-            ctx.fillStyle = 'rgba(255,255,255,0.14)';
-            ctx.fillRect(br.x + 3, br.y + 3, br.w * 0.45, 2);
+            targetCtx.strokeStyle = 'rgba(255,244,248,0.42)';
+            targetCtx.lineWidth = 1;
+            targetCtx.beginPath();
+            roundRect(targetCtx, br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 4);
+            targetCtx.stroke();
+            targetCtx.fillStyle = 'rgba(255,255,255,0.14)';
+            targetCtx.fillRect(br.x + 3, br.y + 3, br.w * 0.45, 2);
             break;
         case 'chargedPanel':
-            ctx.strokeStyle = `rgba(${hexToRgb(theme.accent)},0.42)`;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            roundRect(ctx, br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 4);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(br.x + 5, br.y + br.h - 4);
-            ctx.lineTo(br.x + br.w - 6, br.y + 4);
-            ctx.stroke();
-            ctx.fillStyle = `rgba(${hexToRgb(theme.text3)},0.9)`;
-            ctx.fillRect(br.x + br.w - 6, br.y + 4, 2, 2);
+            targetCtx.strokeStyle = `rgba(${hexToRgb(theme.accent)},0.42)`;
+            targetCtx.lineWidth = 1;
+            targetCtx.beginPath();
+            roundRect(targetCtx, br.x + 0.5, br.y + 0.5, br.w - 1, br.h - 1, 4);
+            targetCtx.stroke();
+            targetCtx.beginPath();
+            targetCtx.moveTo(br.x + 5, br.y + br.h - 4);
+            targetCtx.lineTo(br.x + br.w - 6, br.y + 4);
+            targetCtx.stroke();
+            targetCtx.fillStyle = `rgba(${hexToRgb(theme.text3)},0.9)`;
+            targetCtx.fillRect(br.x + br.w - 6, br.y + 4, 2, 2);
             break;
     }
 }
 
-function renderBricks() {
+function renderBricks(targetCtx = ctx) {
     const gradCache = new Map();
 
     for (const br of bricks) {
         if (!br.alive) continue;
         const color = brickColor(br);
         const r = theme.brickStyle === 'wireframe' ? 2 : 4;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = theme.brickStyle === 'wireframe' ? 6 : 10;
-        ctx.fillStyle = getBrickFillStyle(gradCache, br, color);
-        ctx.beginPath();
-        roundRect(ctx, br.x, br.y, br.w, br.h, r);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        renderBrickDetails(br, color, r);
+        targetCtx.shadowColor = color;
+        targetCtx.shadowBlur = theme.brickStyle === 'wireframe' ? 6 : 10;
+        targetCtx.fillStyle = getBrickFillStyle(targetCtx, gradCache, br, color);
+        targetCtx.beginPath();
+        roundRect(targetCtx, br.x, br.y, br.w, br.h, r);
+        targetCtx.fill();
+        targetCtx.shadowBlur = 0;
+        renderBrickDetails(targetCtx, br, color, r);
 
         if (br.hp > 1) {
-            ctx.fillStyle = 'rgba(255,255,255,0.9)';
-            ctx.font = 'bold 11px sans-serif';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(br.hp, br.x + br.w / 2, br.y + br.h / 2);
+            targetCtx.fillStyle = 'rgba(255,255,255,0.9)';
+            targetCtx.font = 'bold 11px sans-serif';
+            targetCtx.textAlign = 'center'; targetCtx.textBaseline = 'middle';
+            targetCtx.fillText(br.hp, br.x + br.w / 2, br.y + br.h / 2);
         }
     }
 }
@@ -2531,9 +2550,7 @@ function renderStageIntro() {
     const alpha = progress < 0.3 ? progress / 0.3 : progress > 0.7 ? (1 - progress) / 0.3 : 1;
     ctx.globalAlpha = Math.min(alpha * 1.5, 1);
     neonText(`STAGE ${level + 1}`, W / 2, H * 0.38, 62, theme.text1, 28);
-    const def = getLevelDef(level);
-    const cnt = def.rows.flat().filter(v => v > 0).length;
-    neonText(`${cnt} BRICKS`, W / 2, H * 0.5, 24, theme.fireBall || '#ff6600', 10);
+    neonText(`${stageIntroBrickCount} BRICKS`, W / 2, H * 0.5, 24, theme.fireBall || '#ff6600', 10);
     ctx.globalAlpha = 1;
 }
 
@@ -2669,7 +2686,8 @@ function render() {
     } else if (state === 'NAME_INPUT') {
         renderNameInput();
     } else {
-        renderBricks();
+        if (state === 'STAGE_INTRO' && stageIntroBrickSnapshot) ctx.drawImage(stageIntroBrickSnapshot, 0, 0);
+        else renderBricks();
         renderItems();
         renderBullets();
         renderBalls();

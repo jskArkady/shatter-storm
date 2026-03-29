@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+    countLevelBricks,
     getBrickRowRange,
     getBrickScore,
     loadRankingStore,
@@ -104,4 +105,12 @@ test('pickMultiBallSource chooses a random existing ball position', () => {
         pickMultiBallSource(balls, { x: 800, y: 900 }, () => 0.5),
         { x: 300, y: 400 },
     );
+});
+
+test('countLevelBricks precomputes intro brick totals from level rows', () => {
+    assert.equal(countLevelBricks([
+        [1, 0, 2, 0],
+        [0, 3, 0, 4],
+        [0, 0, 0, 0],
+    ]), 4);
 });
