@@ -224,6 +224,10 @@ function setTheme(key) {
     theme = THEMES[currentThemeKey];
     document.documentElement.style.setProperty('--theme-bg1', theme.bg1);
     document.documentElement.style.setProperty('--theme-bg2', theme.bg2);
+    if (bricks.length > 0) {
+        rebuildBrickLayer();
+        if (state === 'STAGE_INTRO') stageIntroBrickSnapshot = buildStageIntroSnapshot();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -242,6 +246,7 @@ const COMBO_WINDOW_MS = 1800;
 const MULTI_BALL_COUNT = 15;
 const EFFECT_DURATION_MS = 10000;
 const MEGA_BALL_DURATION_MS = 8000;
+const BRICK_FLASH_FRAMES = 6;
 const RANKING_KEY = 'shatterStorm_v7';
 const MAX_RANKING = 5;
 const MAX_PARTICLES = 500;
@@ -486,39 +491,60 @@ function updateParticles() {
     }
 }
 function renderParticles() {
-    for (const p of particles) {
-        ctx.save();
-        ctx.globalAlpha = p.life;
-        ctx.fillStyle = p.color;
-        ctx.strokeStyle = p.color;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 6;
-
-        switch (theme.particleStyle) {
-            case 'chip':
+    switch (theme.particleStyle) {
+        case 'chip':
+            for (const p of particles) {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
                 ctx.fillRect(p.x - p.size * 0.7, p.y - p.size * 0.22, p.size * 1.4, p.size * 0.44);
-                break;
-            case 'bubble':
-                ctx.lineWidth = 1.1;
+            }
+            break;
+        case 'bubble':
+            ctx.lineWidth = 1.1;
+            for (const p of particles) {
+                ctx.globalAlpha = p.life;
+                ctx.strokeStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size * 0.45, 0, Math.PI * 2);
                 ctx.stroke();
-                break;
-            case 'ember':
+            }
+            break;
+        case 'ember':
+            for (const p of particles) {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size * 0.4, 0, Math.PI * 2);
                 ctx.fill();
-                break;
-            case 'petal': {
-                const rot = frameCount * 0.04 + p.x * 0.01;
+            }
+            break;
+        case 'petal':
+            for (const p of particles) {
+                ctx.save();
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
                 ctx.translate(p.x, p.y);
-                ctx.rotate(rot);
+                ctx.rotate(frameCount * 0.04 + p.x * 0.01);
                 ctx.beginPath();
                 ctx.ellipse(0, 0, p.size * 0.6, p.size * 0.28, 0, 0, Math.PI * 2);
                 ctx.fill();
-                break;
+                ctx.restore();
             }
-            case 'shard':
+            break;
+        case 'shard':
+            for (const p of particles) {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
                 ctx.beginPath();
                 ctx.moveTo(p.x, p.y - p.size * 0.6);
                 ctx.lineTo(p.x + p.size * 0.55, p.y);
@@ -526,14 +552,20 @@ function renderParticles() {
                 ctx.lineTo(p.x - p.size * 0.55, p.y);
                 ctx.closePath();
                 ctx.fill();
-                break;
-            default:
+            }
+            break;
+        default:
+            for (const p of particles) {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
                 ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-                break;
-        }
-        ctx.restore();
+            }
+            break;
     }
-    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1116,6 +1148,8 @@ let balls = [], bricks = [], items = [], bullets = [];
 let brickRows = [];
 let stageIntroBrickCount = 0;
 let stageIntroBrickSnapshot = null;
+let brickLayerCanvas = null;
+let brickLayerCtx = null;
 let bulletsLeft = BULLETS_PER_STAGE;
 let paddle = { x: W / 2, w: PADDLE_BASE_W, targetW: PADDLE_BASE_W };
 let mouseX = W / 2, mouseY = H / 2;
@@ -1189,10 +1223,31 @@ function createStageLayerCanvas() {
     return layer;
 }
 
+function ensureBrickLayerCanvas() {
+    if (brickLayerCanvas && brickLayerCtx) return;
+    brickLayerCanvas = createStageLayerCanvas();
+    brickLayerCtx = brickLayerCanvas.getContext('2d');
+}
+
+function rebuildBrickLayer() {
+    ensureBrickLayerCanvas();
+    brickLayerCtx.clearRect(0, 0, W, H);
+    for (const br of bricks) {
+        if (!br.alive) continue;
+        renderBrickBody(brickLayerCtx, br);
+    }
+}
+
+function syncBrickLayerBrick(br) {
+    if (!br) return;
+    rebuildBrickLayer();
+}
+
 function buildStageIntroSnapshot() {
     const layer = createStageLayerCanvas();
     const layerCtx = layer.getContext('2d');
-    renderBricks(layerCtx);
+    if (brickLayerCanvas) layerCtx.drawImage(brickLayerCanvas, 0, 0);
+    else renderBricks(layerCtx);
     return layer;
 }
 
@@ -1225,6 +1280,7 @@ function loadLevel(idx) {
     paddle.x = W / 2;
     combo = 0;
     spawnInitialBall();
+    rebuildBrickLayer();
     stageIntroBrickSnapshot = buildStageIntroSnapshot();
 }
 
@@ -1355,6 +1411,7 @@ function destroyBrick(br, scoreMultiplier = 1) {
     if (!br.alive) return;
     br.alive = false; br.hp = 0;
     const bx = br.x + br.w / 2, by = br.y + br.h / 2;
+    syncBrickLayerBrick(br);
     spawnParticles(bx, by, brickColor(br), 15);
     const pts = Math.floor(getBrickScore(br.maxHp) * scoreMultiplier);
     score += pts;
@@ -1456,6 +1513,7 @@ function update() {
     // Ball speed & mega size
     const speed = currentBallSpeed();
     const isMega = effects.megaBall > 0;
+    const trailProfile = getTrailProfile(balls.length, isMega);
 
     for (let i = balls.length - 1; i >= 0; i--) {
         const b = balls[i];
@@ -1474,7 +1532,9 @@ function update() {
 
         // Trail
         b.trail.push({ x: b.x, y: b.y });
-        if (b.trail.length > (isMega ? 12 : 8)) b.trail.shift();
+        if (b.trail.length > trailProfile.maxPoints) {
+            b.trail.splice(0, b.trail.length - trailProfile.maxPoints);
+        }
 
         b.x += b.vx; b.y += b.vy;
         const effectiveR = b.megaR || b.r;
@@ -1522,7 +1582,7 @@ function update() {
                 }
 
                 br.hp--;
-                br.flashTimer = 6;
+                br.flashTimer = BRICK_FLASH_FRAMES;
                 playSound('brick');
 
                 // Combo
@@ -1549,6 +1609,7 @@ function update() {
                     spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), isMega ? 25 : 18);
                     tryDropItem(br.x + br.w / 2, br.y + br.h / 2);
                 }
+                syncBrickLayerBrick(br);
                 row = ballRows.end;
                 break;
             }
@@ -1590,7 +1651,7 @@ function update() {
                 if (bl.x > br.x - BULLET_W / 2 && bl.x < br.x + br.w + BULLET_W / 2 &&
                     bl.y > br.y && bl.y < br.y + br.h) {
                     br.hp--;
-                    br.flashTimer = 6;
+                    br.flashTimer = BRICK_FLASH_FRAMES;
                     playSound('brick');
                     if (br.hp <= 0) {
                         spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), 12);
@@ -1600,6 +1661,7 @@ function update() {
                         br.alive = false;
                         tryDropItem(br.x + br.w / 2, br.y + br.h / 2);
                     }
+                    syncBrickLayerBrick(br);
                     hit = true;
                     row = bulletRows.end;
                     break;
@@ -1642,15 +1704,9 @@ function update() {
 // ═══════════════════════════════════════════════════════════════
 // RENDERING
 // ═══════════════════════════════════════════════════════════════
-function getBrickFillStyle(targetCtx, gradCache, br, color) {
-    if (br.flashTimer > 0) return '#fff';
-
-    const cacheKey = `${theme.brickStyle}_${br.row}_${br.hp}`;
-    let grd = gradCache.get(cacheKey);
-    if (grd) return grd;
-
+function getBrickFillStyle(targetCtx, br, color) {
     const hue = theme.brickHue(br.row);
-    grd = targetCtx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
+    const grd = targetCtx.createLinearGradient(br.x, br.y, br.x, br.y + br.h);
 
     switch (theme.brickStyle) {
         case 'wireframe':
@@ -1683,13 +1739,10 @@ function getBrickFillStyle(targetCtx, gradCache, br, color) {
             break;
     }
 
-    gradCache.set(cacheKey, grd);
     return grd;
 }
 
 function renderBrickDetails(targetCtx, br, color, r) {
-    if (br.flashTimer > 0) return;
-
     switch (theme.brickStyle) {
         case 'glass':
             targetCtx.strokeStyle = 'rgba(255,255,255,0.22)';
@@ -1748,32 +1801,87 @@ function renderBrickDetails(targetCtx, br, color, r) {
     }
 }
 
-function renderBricks(targetCtx = ctx) {
-    const gradCache = new Map();
+function renderBrickBody(targetCtx, br) {
+    const color = brickColor(br);
+    const r = theme.brickStyle === 'wireframe' ? 2 : 4;
+    targetCtx.shadowColor = color;
+    targetCtx.shadowBlur = theme.brickStyle === 'wireframe' ? 6 : 10;
+    targetCtx.fillStyle = getBrickFillStyle(targetCtx, br, color);
+    targetCtx.beginPath();
+    roundRect(targetCtx, br.x, br.y, br.w, br.h, r);
+    targetCtx.fill();
+    targetCtx.shadowBlur = 0;
+    renderBrickDetails(targetCtx, br, color, r);
 
+    if (br.hp > 1) {
+        targetCtx.fillStyle = 'rgba(255,255,255,0.9)';
+        targetCtx.font = 'bold 11px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.textBaseline = 'middle';
+        targetCtx.fillText(br.hp, br.x + br.w / 2, br.y + br.h / 2);
+    }
+}
+
+function renderBricks(targetCtx = ctx) {
     for (const br of bricks) {
         if (!br.alive) continue;
-        const color = brickColor(br);
+        renderBrickBody(targetCtx, br);
+    }
+}
+
+function renderBrickFlashes(targetCtx = ctx) {
+    for (const br of bricks) {
+        if (!br.alive || br.flashTimer <= 0) continue;
+        const alpha = 0.18 + (br.flashTimer / BRICK_FLASH_FRAMES) * 0.5;
         const r = theme.brickStyle === 'wireframe' ? 2 : 4;
-        targetCtx.shadowColor = color;
-        targetCtx.shadowBlur = theme.brickStyle === 'wireframe' ? 6 : 10;
-        targetCtx.fillStyle = getBrickFillStyle(targetCtx, gradCache, br, color);
+        targetCtx.globalAlpha = alpha;
+        targetCtx.fillStyle = '#ffffff';
+        targetCtx.shadowColor = '#ffffff';
+        targetCtx.shadowBlur = 8;
         targetCtx.beginPath();
         roundRect(targetCtx, br.x, br.y, br.w, br.h, r);
         targetCtx.fill();
         targetCtx.shadowBlur = 0;
-        renderBrickDetails(targetCtx, br, color, r);
-
-        if (br.hp > 1) {
-            targetCtx.fillStyle = 'rgba(255,255,255,0.9)';
-            targetCtx.font = 'bold 11px sans-serif';
-            targetCtx.textAlign = 'center'; targetCtx.textBaseline = 'middle';
-            targetCtx.fillText(br.hp, br.x + br.w / 2, br.y + br.h / 2);
-        }
     }
+    targetCtx.globalAlpha = 1;
 }
 
-function renderBallTrail(ball, effectiveR, trailColor) {
+function getTrailProfile(ballCount, isMega) {
+    if (ballCount >= 120) {
+        return { maxPoints: isMega ? 4 : 3, step: 2, minimal: true };
+    }
+    if (ballCount >= 60) {
+        return { maxPoints: isMega ? 6 : 4, step: 2, minimal: false };
+    }
+    if (ballCount >= 30) {
+        return { maxPoints: isMega ? 8 : 6, step: 1, minimal: false };
+    }
+    return { maxPoints: isMega ? 12 : 8, step: 1, minimal: false };
+}
+
+function renderMinimalTrail(ball, effectiveR, trailColor, step) {
+    const lastIndex = ball.trail.length - 1;
+    if (lastIndex <= 0) return;
+
+    ctx.strokeStyle = trailColor;
+    ctx.lineWidth = Math.max(1.5, effectiveR * 0.45);
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.22;
+    ctx.beginPath();
+    ctx.moveTo(ball.trail[0].x, ball.trail[0].y);
+    for (let i = step; i <= lastIndex; i += step) ctx.lineTo(ball.trail[i].x, ball.trail[i].y);
+    if (lastIndex % step !== 0) ctx.lineTo(ball.trail[lastIndex].x, ball.trail[lastIndex].y);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+function renderBallTrail(ball, effectiveR, trailColor, trailProfile) {
+    const step = trailProfile.step;
+    if (trailProfile.minimal) {
+        renderMinimalTrail(ball, effectiveR, trailColor, step);
+        return;
+    }
+
     switch (theme.trailStyle) {
         case 'vector':
             if (ball.trail.length < 2) return;
@@ -1783,12 +1891,12 @@ function renderBallTrail(ball, effectiveR, trailColor) {
             ctx.globalAlpha = 0.26;
             ctx.beginPath();
             ctx.moveTo(ball.trail[0].x, ball.trail[0].y);
-            for (let i = 1; i < ball.trail.length; i++) ctx.lineTo(ball.trail[i].x, ball.trail[i].y);
+            for (let i = step; i < ball.trail.length; i += step) ctx.lineTo(ball.trail[i].x, ball.trail[i].y);
             ctx.stroke();
             ctx.globalAlpha = 1;
             break;
         case 'bubbleWake':
-            for (let i = 0; i < ball.trail.length; i++) {
+            for (let i = 0; i < ball.trail.length; i += step) {
                 const t = ball.trail[i];
                 const alpha = (i / ball.trail.length) * 0.22;
                 const size = effectiveR * (i / ball.trail.length) * 0.82;
@@ -1802,7 +1910,7 @@ function renderBallTrail(ball, effectiveR, trailColor) {
             ctx.globalAlpha = 1;
             break;
         case 'ember':
-            for (let i = 0; i < ball.trail.length; i++) {
+            for (let i = 0; i < ball.trail.length; i += step) {
                 const t = ball.trail[i];
                 const alpha = (i / ball.trail.length) * 0.3;
                 const size = Math.max(2, effectiveR * 0.35 * (i / ball.trail.length + 0.25));
@@ -1814,8 +1922,8 @@ function renderBallTrail(ball, effectiveR, trailColor) {
             break;
         case 'inkRibbon':
             if (ball.trail.length < 2) return;
-            for (let i = 1; i < ball.trail.length; i++) {
-                const a = ball.trail[i - 1];
+            for (let i = step; i < ball.trail.length; i += step) {
+                const a = ball.trail[Math.max(0, i - step)];
                 const b = ball.trail[i];
                 ctx.globalAlpha = i / ball.trail.length * 0.26;
                 ctx.strokeStyle = trailColor;
@@ -1829,8 +1937,8 @@ function renderBallTrail(ball, effectiveR, trailColor) {
             ctx.globalAlpha = 1;
             break;
         case 'arc':
-            for (let i = 1; i < ball.trail.length; i++) {
-                const a = ball.trail[i - 1];
+            for (let i = step; i < ball.trail.length; i += step) {
+                const a = ball.trail[Math.max(0, i - step)];
                 const b = ball.trail[i];
                 const mx = (a.x + b.x) / 2 + Math.sin(frameCount * 0.12 + i) * 6;
                 const my = (a.y + b.y) / 2 + Math.cos(frameCount * 0.1 + i) * 6;
@@ -1846,7 +1954,7 @@ function renderBallTrail(ball, effectiveR, trailColor) {
             ctx.globalAlpha = 1;
             break;
         default:
-            for (let j = 0; j < ball.trail.length; j++) {
+            for (let j = 0; j < ball.trail.length; j += step) {
                 const t = ball.trail[j];
                 ctx.globalAlpha = (j / ball.trail.length) * 0.35;
                 ctx.fillStyle = trailColor;
@@ -1862,12 +1970,13 @@ function renderBallTrail(ball, effectiveR, trailColor) {
 
 function renderBalls() {
     const isMega = effects.megaBall > 0;
+    const trailProfile = getTrailProfile(balls.length, isMega);
     for (const b of balls) {
         const effectiveR = isMega ? BALL_R * MEGA_BALL_SCALE : BALL_R;
         const color = isMega ? theme.megaBall : effects.fireBall > 0 ? theme.fireBall : theme.ball;
         const trailColor = isMega ? theme.megaBall : effects.fireBall > 0 ? theme.fireBall : theme.ballGlow;
 
-        renderBallTrail(b, effectiveR, trailColor);
+        renderBallTrail(b, effectiveR, trailColor, trailProfile);
 
         // Ball
         ctx.shadowColor = color;
@@ -2687,7 +2796,9 @@ function render() {
         renderNameInput();
     } else {
         if (state === 'STAGE_INTRO' && stageIntroBrickSnapshot) ctx.drawImage(stageIntroBrickSnapshot, 0, 0);
+        else if (brickLayerCanvas) ctx.drawImage(brickLayerCanvas, 0, 0);
         else renderBricks();
+        renderBrickFlashes();
         renderItems();
         renderBullets();
         renderBalls();

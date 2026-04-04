@@ -72,6 +72,17 @@ brick-breaker/
 
 Built with vanilla HTML5 Canvas, CSS, and JavaScript. No dependencies.
 
+## ⚙️ Rendering
+
+The game still runs by opening `index.html` directly in a browser. No server, bundler, or install step is required.
+
+Recent rendering optimizations keep brick destruction effects stable without changing the local-file workflow:
+
+- Bricks are composited through a dedicated layer canvas and rebuilt only when brick state changes
+- Hit flashes are rendered as an overlay instead of forcing full frame brick restyling
+- Particle rendering avoids unnecessary canvas state saves for most particle styles
+- Ball trails scale down automatically when multi-ball counts get high
+
 ## 🏆 Ranking
 
 Top 5 scores are saved in `localStorage`. View rankings from the main menu. Each entry shows the date and time (hour:minute).
