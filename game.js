@@ -236,9 +236,37 @@ function setTheme(key) {
 const W = 1600, H = 1200;
 const PADDLE_BASE_W = 160, PADDLE_H = 15, PADDLE_Y = H - 55;
 const BALL_R = 7, BALL_BASE_SPEED = 5;
-const BRICK_COLS = 38, BRICK_PAD = 2;
+const ShatterLogic = globalThis.ShatterLogic;
+
+if (!ShatterLogic) throw new Error('ShatterLogic failed to load');
+
+const {
+    advanceImpactBursts,
+    collectActiveBallBodies,
+    collectActiveBrickBodies,
+    countLevelBricks,
+    createBrickImpactBurst,
+    densifyStageRows,
+    getBrickLayoutMetrics,
+    getComboLabel,
+    getBrickRowRange,
+    getBrickScore,
+    loadRankingStore,
+    pickMultiBallSource,
+    resolveThreeOverlayBridge,
+    resolveThreeEffectBridge,
+    resolveThreeGameplayBridge,
+    resolveFrameOutcome,
+    saveRankingStore,
+} = ShatterLogic;
+const BRICK_COLS = 38, BRICK_PAD = 0;
 const BRICK_OFFSET_TOP = 58, BRICK_OFFSET_LEFT = 16;
-const BRICK_W = (W - BRICK_OFFSET_LEFT * 2 - BRICK_PAD * (BRICK_COLS - 1)) / BRICK_COLS;
+const { brickWidth: BRICK_W } = getBrickLayoutMetrics({
+    width: W,
+    cols: BRICK_COLS,
+    offsetLeft: BRICK_OFFSET_LEFT,
+    pad: BRICK_PAD,
+});
 const BRICK_H = 16;
 const ITEM_SIZE = 24, ITEM_FALL_SPEED = 5.6;
 const MAX_BALLS = 200, START_LIVES = 3;
@@ -250,25 +278,13 @@ const BRICK_FLASH_FRAMES = 6;
 const RANKING_KEY = 'shatterStorm_v7';
 const MAX_RANKING = 5;
 const MAX_PARTICLES = 500;
+const MAX_IMPACT_BURSTS = 96;
 const MEGA_BALL_SCALE = 3;
 const BULLETS_PER_STAGE = 10;
 const BULLET_SPEED = 14;
 const BULLET_W = 4, BULLET_H = 14;
 
 const NEON = ['#ff0055','#ff6600','#ffcc00','#00ff88','#00ccff','#8855ff','#ff33cc'];
-const ShatterLogic = globalThis.ShatterLogic;
-
-if (!ShatterLogic) throw new Error('ShatterLogic failed to load');
-
-const {
-    countLevelBricks,
-    getBrickRowRange,
-    getBrickScore,
-    loadRankingStore,
-    pickMultiBallSource,
-    resolveFrameOutcome,
-    saveRankingStore,
-} = ShatterLogic;
 
 // ═══════════════════════════════════════════════════════════════
 // ITEM DEFINITIONS
@@ -291,10 +307,23 @@ const ITEM_DROP_CHANCE = 0.45;
 // ═══════════════════════════════════════════════════════════════
 // CANVAS SETUP
 // ═══════════════════════════════════════════════════════════════
+const sceneCanvas = document.getElementById('scene3d');
+const sceneGameplayCanvas = document.getElementById('scene3d-gameplay');
 const canvas = document.getElementById('game');
+const sceneOverlayCanvas = document.getElementById('scene3d-overlay');
 const ctx = canvas.getContext('2d');
 canvas.width = W;
 canvas.height = H;
+const threeRenderer = globalThis.ShatterThreeBackgroundRenderer
+    ? new globalThis.ShatterThreeBackgroundRenderer({ canvas: sceneCanvas, width: W, height: H })
+    : null;
+const threeGameplayRenderer = globalThis.ShatterThreeGameplayRenderer
+    ? new globalThis.ShatterThreeGameplayRenderer({ canvas: sceneGameplayCanvas, width: W, height: H })
+    : null;
+const threeOverlayRenderer = globalThis.ShatterThreeOverlayRenderer
+    ? new globalThis.ShatterThreeOverlayRenderer({ canvas: sceneOverlayCanvas, width: W, height: H })
+    : null;
+const renderFlags = { useThreeEffects: false, useThreeGameplay: false, useThreeOverlay: false };
 let isUiCursorVisible = null;
 
 function setUiCursorVisible(isVisible) {
@@ -433,6 +462,7 @@ function playSound(type) {
 // PARTICLE SYSTEM
 // ═══════════════════════════════════════════════════════════════
 let particles = [];
+let impactBursts = [];
 function spawnParticles(x, y, color, count = 15) {
     const canAdd = MAX_PARTICLES - particles.length;
     if (canAdd <= 0) return;
@@ -490,7 +520,14 @@ function updateParticles() {
         }
     }
 }
+
+function emitBrickImpact(br) {
+    if (impactBursts.length >= MAX_IMPACT_BURSTS) impactBursts.shift();
+    impactBursts.push(createBrickImpactBurst(br, brickColor(br)));
+}
+
 function renderParticles() {
+    if (renderFlags.useThreeEffects) return;
     switch (theme.particleStyle) {
         case 'chip':
             for (const p of particles) {
@@ -1157,36 +1194,24 @@ let shake = { x: 0, y: 0, intensity: 0 };
 let effects = { widePaddle: 0, fireBall: 0, slowBall: 0, megaBall: 0 };
 let stageTimer = 0;
 let nameInput = '';
-let flashEffect = { alpha: 0 };
 let frameCount = 0;
 let comboDisplay = { value: 0, scale: 1, alpha: 0, label: '' };
-
-const COMBO_LABELS = [
-    [3,  'COMBO!'],
-    [5,  'GREAT!'],
-    [10, 'AMAZING!'],
-    [20, 'UNSTOPPABLE!'],
-    [30, 'GODLIKE!'],
-];
-
-function getComboLabel(c) {
-    let label = '';
-    for (const [threshold, text] of COMBO_LABELS) {
-        if (c >= threshold) label = text;
-    }
-    return label;
-}
 
 // ═══════════════════════════════════════════════════════════════
 // BALL MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 function getLevelDef(idx) {
-    return idx < LEVELS.length ? LEVELS[idx] : generateEndlessLevel(idx);
+    const raw = idx < LEVELS.length ? LEVELS[idx] : generateEndlessLevel(idx);
+    return { speed: raw.speed, rows: densifyStageRows(raw.rows, idx) };
+}
+
+function getLevelSpeed(idx) {
+    if (idx < LEVELS.length) return LEVELS[idx].speed;
+    return LEVELS[LEVELS.length - 1].speed + (idx - 10) * 0.03;
 }
 
 function currentBallSpeed() {
-    const lvl = getLevelDef(level);
-    let speed = BALL_BASE_SPEED * lvl.speed;
+    let speed = BALL_BASE_SPEED * getLevelSpeed(level);
     if (effects.slowBall > 0) speed *= 0.5;
     return speed;
 }
@@ -1230,6 +1255,7 @@ function ensureBrickLayerCanvas() {
 }
 
 function rebuildBrickLayer() {
+    if (threeGameplayRenderer && threeGameplayRenderer.isReady()) return;
     ensureBrickLayerCanvas();
     brickLayerCtx.clearRect(0, 0, W, H);
     for (const br of bricks) {
@@ -1240,10 +1266,12 @@ function rebuildBrickLayer() {
 
 function syncBrickLayerBrick(br) {
     if (!br) return;
+    if (threeGameplayRenderer && threeGameplayRenderer.isReady()) return;
     rebuildBrickLayer();
 }
 
 function buildStageIntroSnapshot() {
+    if (threeGameplayRenderer && threeGameplayRenderer.isReady()) return null;
     const layer = createStageLayerCanvas();
     const layerCtx = layer.getContext('2d');
     if (brickLayerCanvas) layerCtx.drawImage(brickLayerCanvas, 0, 0);
@@ -1252,7 +1280,7 @@ function buildStageIntroSnapshot() {
 }
 
 function loadLevel(idx) {
-    const def = idx < LEVELS.length ? LEVELS[idx] : generateEndlessLevel(idx);
+    const def = getLevelDef(idx);
     bricks = [];
     brickRows = Array.from({ length: def.rows.length }, () => []);
     stageIntroBrickCount = countLevelBricks(def.rows);
@@ -1273,6 +1301,7 @@ function loadLevel(idx) {
     }
     items = [];
     bullets = [];
+    impactBursts = [];
     bulletsLeft = BULLETS_PER_STAGE;
     effects = { widePaddle: 0, fireBall: 0, slowBall: 0, megaBall: 0 };
     paddle.w = PADDLE_BASE_W;
@@ -1412,6 +1441,7 @@ function destroyBrick(br, scoreMultiplier = 1) {
     br.alive = false; br.hp = 0;
     const bx = br.x + br.w / 2, by = br.y + br.h / 2;
     syncBrickLayerBrick(br);
+    emitBrickImpact(br);
     spawnParticles(bx, by, brickColor(br), 15);
     const pts = Math.floor(getBrickScore(br.maxHp) * scoreMultiplier);
     score += pts;
@@ -1431,7 +1461,6 @@ function fireBullet() {
 
 function applyItem(item) {
     playSound('item');
-    flashEffect.alpha = 0.25;
     switch (item.type.id) {
         case 'MULTI_BALL': {
             playSound('multiBall');
@@ -1480,9 +1509,9 @@ function update() {
     frameCount++;
     updateStars();
     updateParticles();
+    impactBursts = advanceImpactBursts(impactBursts);
     updateFloatingTexts();
 
-    if (flashEffect.alpha > 0) flashEffect.alpha *= 0.9;
     if (shake.intensity > 0.3) {
         shake.x = rand(-1, 1) * shake.intensity;
         shake.y = rand(-1, 1) * shake.intensity;
@@ -1583,6 +1612,7 @@ function update() {
 
                 br.hp--;
                 br.flashTimer = BRICK_FLASH_FRAMES;
+                emitBrickImpact(br);
                 playSound('brick');
 
                 // Combo
@@ -1652,6 +1682,7 @@ function update() {
                     bl.y > br.y && bl.y < br.y + br.h) {
                     br.hp--;
                     br.flashTimer = BRICK_FLASH_FRAMES;
+                    emitBrickImpact(br);
                     playSound('brick');
                     if (br.hp <= 0) {
                         spawnParticles(br.x + br.w / 2, br.y + br.h / 2, brickColor(br), 12);
@@ -1812,13 +1843,22 @@ function renderBrickBody(targetCtx, br) {
     targetCtx.fill();
     targetCtx.shadowBlur = 0;
     renderBrickDetails(targetCtx, br, color, r);
+    renderBrickLabel(targetCtx, br);
+}
 
-    if (br.hp > 1) {
-        targetCtx.fillStyle = 'rgba(255,255,255,0.9)';
-        targetCtx.font = 'bold 11px sans-serif';
-        targetCtx.textAlign = 'center';
-        targetCtx.textBaseline = 'middle';
-        targetCtx.fillText(br.hp, br.x + br.w / 2, br.y + br.h / 2);
+function renderBrickLabel(targetCtx, br) {
+    if (br.hp <= 1) return;
+    targetCtx.fillStyle = 'rgba(255,255,255,0.9)';
+    targetCtx.font = 'bold 11px sans-serif';
+    targetCtx.textAlign = 'center';
+    targetCtx.textBaseline = 'middle';
+    targetCtx.fillText(br.hp, br.x + br.w / 2, br.y + br.h / 2);
+}
+
+function renderBrickLabels(targetCtx = ctx) {
+    for (const br of bricks) {
+        if (!br.alive) continue;
+        renderBrickLabel(targetCtx, br);
     }
 }
 
@@ -1830,6 +1870,7 @@ function renderBricks(targetCtx = ctx) {
 }
 
 function renderBrickFlashes(targetCtx = ctx) {
+    if (targetCtx === ctx && renderFlags.useThreeOverlay) return;
     for (const br of bricks) {
         if (!br.alive || br.flashTimer <= 0) continue;
         const alpha = 0.18 + (br.flashTimer / BRICK_FLASH_FRAMES) * 0.5;
@@ -1876,6 +1917,7 @@ function renderMinimalTrail(ball, effectiveR, trailColor, step) {
 }
 
 function renderBallTrail(ball, effectiveR, trailColor, trailProfile) {
+    if (renderFlags.useThreeEffects) return;
     const step = trailProfile.step;
     if (trailProfile.minimal) {
         renderMinimalTrail(ball, effectiveR, trailColor, step);
@@ -1969,6 +2011,7 @@ function renderBallTrail(ball, effectiveR, trailColor, trailProfile) {
 }
 
 function renderBalls() {
+    if (renderFlags.useThreeGameplay) return;
     const isMega = effects.megaBall > 0;
     const trailProfile = getTrailProfile(balls.length, isMega);
     for (const b of balls) {
@@ -1995,7 +2038,7 @@ function renderBullets() {
     for (const bl of bullets) {
         ctx.save();
         ctx.shadowColor = '#ffe04d';
-        ctx.shadowBlur = 16;
+        ctx.shadowBlur = renderFlags.useThreeOverlay ? 0 : 16;
         ctx.fillStyle = '#fff7aa';
         ctx.fillRect(bl.x - BULLET_W / 2, bl.y - BULLET_H, BULLET_W, BULLET_H);
         ctx.shadowBlur = 0;
@@ -2006,7 +2049,7 @@ function renderBullets() {
 function renderPaddle() {
     const px = paddle.x - paddle.w / 2, py = PADDLE_Y, pw = paddle.w;
     const color = effects.widePaddle > 0 ? theme.text3 : theme.paddle;
-    ctx.shadowColor = color; ctx.shadowBlur = 22;
+    ctx.shadowColor = color; ctx.shadowBlur = renderFlags.useThreeOverlay ? 0 : 22;
 
     const grd = ctx.createLinearGradient(px, py, px, py + PADDLE_H);
     grd.addColorStop(0, color); grd.addColorStop(1, theme.paddleDark);
@@ -2059,7 +2102,10 @@ function renderItemBadge(x, y, radius, typeId, options = {}) {
 
 function renderItems() {
     for (const it of items) {
-        renderItemBadge(it.x, it.y, ITEM_SIZE / 2, it.type.id, { glow: 12 + it.glow * 5, iconSize: 11 });
+        renderItemBadge(it.x, it.y, ITEM_SIZE / 2, it.type.id, {
+            glow: renderFlags.useThreeOverlay ? 0 : 12 + it.glow * 5,
+            iconSize: 11,
+        });
     }
 }
 
@@ -2149,7 +2195,7 @@ function renderHUD() {
         ctx.fillStyle = col;
         ctx.font = `bold ${Math.floor(28 * comboDisplay.scale)}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = col; ctx.shadowBlur = 20;
+        ctx.shadowColor = col; ctx.shadowBlur = renderFlags.useThreeOverlay ? 0 : 20;
         ctx.fillText(`${comboDisplay.value}x ${comboDisplay.label}`, W / 2, H / 2 - 70);
         ctx.restore();
     }
@@ -2780,13 +2826,114 @@ function hexToRgb(hex) {
 // ═══════════════════════════════════════════════════════════════
 // MAIN RENDER
 // ═══════════════════════════════════════════════════════════════
+function getRenderSnapshot() {
+    const effectBridge = resolveThreeEffectBridge({
+        rendererReady: !!(threeRenderer && threeRenderer.isReady()),
+        theme,
+        effects,
+        balls,
+        particles,
+        impactBursts,
+    });
+    const activeBrickBodies = collectActiveBrickBodies(bricks).map((brick) => ({
+        ...brick,
+        color: brickColor(brick),
+    }));
+    const activeBallBodies = collectActiveBallBodies(balls, {
+        ballRadius: BALL_R,
+        megaScale: MEGA_BALL_SCALE,
+        themeColors: {
+            ball: theme.ball,
+            fireBall: theme.fireBall,
+            megaBall: theme.megaBall,
+        },
+        effects,
+    });
+    const gameplayBridge = resolveThreeGameplayBridge({
+        rendererReady: !!(
+            threeGameplayRenderer
+            && threeGameplayRenderer.isReady()
+            && state !== 'MENU'
+            && state !== 'RANKING'
+            && state !== 'NAME_INPUT'
+        ),
+        brickBodies: activeBrickBodies,
+        ballBodies: activeBallBodies,
+    });
+    const overlayBridge = resolveThreeOverlayBridge({
+        rendererReady: !!(threeOverlayRenderer && threeOverlayRenderer.isReady()),
+        bricks,
+        items,
+        bullets,
+        paddle,
+        flashAlpha: 0,
+        brickStyle: theme.brickStyle,
+        brickFlashFrames: BRICK_FLASH_FRAMES,
+        comboDisplay,
+        comboCount: combo,
+        theme,
+        width: W,
+        height: H,
+        paddleY: PADDLE_Y,
+        paddleHeight: PADDLE_H,
+        bulletHeight: BULLET_H,
+        effects,
+    });
+
+    return {
+        width: W,
+        height: H,
+        time: performance.now() * 0.001,
+        frameCount,
+        state,
+        themeKey: currentThemeKey,
+        flashAlpha: 0,
+        shakeX: shake.x,
+        shakeY: shake.y,
+        ...effectBridge,
+        ...gameplayBridge,
+        ...overlayBridge,
+        brickStyle: theme.brickStyle,
+        palette: {
+            bg1: theme.bg1,
+            bg2: theme.bg2,
+            accent: theme.accent,
+            text1: theme.text1,
+            text2: theme.text2,
+            text3: theme.text3,
+            grid: theme.grid,
+        },
+        counts: {
+            balls: balls.length,
+            particles: particles.length,
+            items: items.length,
+            bullets: bullets.length,
+        },
+    };
+}
+
 function render() {
     const showCursor = state !== 'PLAYING' && state !== 'STAGE_INTRO' && state !== 'STAGE_CLEAR';
     setUiCursorVisible(showCursor);
+    const snapshot = getRenderSnapshot();
+    const useThreeBackground = snapshot.useThreeEffects;
+    const useThreeGameplay = snapshot.useThreeGameplay;
+    const useThreeOverlay = snapshot.useThreeOverlay;
+    renderFlags.useThreeEffects = snapshot.useThreeEffects;
+    renderFlags.useThreeGameplay = snapshot.useThreeGameplay;
+    renderFlags.useThreeOverlay = snapshot.useThreeOverlay;
+
+    if (useThreeBackground) {
+        threeRenderer.render(snapshot);
+        ctx.clearRect(0, 0, W, H);
+    }
+
+    if (threeGameplayRenderer) threeGameplayRenderer.render(snapshot);
 
     ctx.save();
     ctx.translate(shake.x, shake.y);
-    renderBackground();
+    if (useThreeBackground) renderThemeOverlay();
+    else renderBackground();
 
     if (state === 'MENU') {
         renderMenuScreen();
@@ -2795,7 +2942,8 @@ function render() {
     } else if (state === 'NAME_INPUT') {
         renderNameInput();
     } else {
-        if (state === 'STAGE_INTRO' && stageIntroBrickSnapshot) ctx.drawImage(stageIntroBrickSnapshot, 0, 0);
+        if (useThreeGameplay) renderBrickLabels();
+        else if (state === 'STAGE_INTRO' && stageIntroBrickSnapshot) ctx.drawImage(stageIntroBrickSnapshot, 0, 0);
         else if (brickLayerCanvas) ctx.drawImage(brickLayerCanvas, 0, 0);
         else renderBricks();
         renderBrickFlashes();
@@ -2807,17 +2955,14 @@ function render() {
         renderFloatingTexts();
         renderHUD();
 
-        if (flashEffect.alpha > 0.01) {
-            ctx.fillStyle = `rgba(255,255,255,${flashEffect.alpha})`;
-            ctx.fillRect(-20, -20, W + 40, H + 40);
-        }
-
         if (state === 'PAUSED') renderPausedScreen();
         else if (state === 'STAGE_INTRO') renderStageIntro();
         else if (state === 'STAGE_CLEAR') renderStageClear();
         else if (state === 'GAME_OVER') renderGameOver();
     }
     ctx.restore();
+
+    if (useThreeOverlay) threeOverlayRenderer.render(snapshot);
 }
 
 // ═══════════════════════════════════════════════════════════════

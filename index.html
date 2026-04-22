@@ -7,7 +7,14 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <canvas id="game"></canvas>
+    <div class="game-shell">
+        <canvas id="scene3d" aria-hidden="true"></canvas>
+        <canvas id="scene3d-gameplay" aria-hidden="true"></canvas>
+        <canvas id="game"></canvas>
+        <canvas id="scene3d-overlay" aria-hidden="true"></canvas>
+    </div>
+    <script src="vendor/three.min.js"></script>
+    <script src="three-renderer.js"></script>
     <script src="game-rules.js"></script>
     <script src="game.js"></script>
 </body>
