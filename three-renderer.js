@@ -3,9 +3,12 @@
 
 const THREE_NS = globalThis.THREE;
 if (!THREE_NS) return;
+const ShatterLogic = globalThis.ShatterLogic || {};
+const { isBrickDepthMeshEnabled = () => true } = ShatterLogic;
 
 const {
     AdditiveBlending,
+    BoxGeometry,
     BufferAttribute,
     BufferGeometry,
     CanvasTexture,
@@ -158,6 +161,30 @@ function createBrickFlashTexture() {
     return new CanvasTexture(canvas);
 }
 
+function createSlashTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    const gradient = context.createLinearGradient(0, 32, 256, 32);
+    gradient.addColorStop(0, 'rgba(255,255,255,0)');
+    gradient.addColorStop(0.16, 'rgba(255,255,255,0.2)');
+    gradient.addColorStop(0.5, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.84, 'rgba(255,255,255,0.2)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.strokeStyle = gradient;
+    context.lineWidth = 14;
+    context.lineCap = 'round';
+    context.shadowColor = 'rgba(255,255,255,0.9)';
+    context.shadowBlur = 18;
+    context.beginPath();
+    context.moveTo(18, 44);
+    context.lineTo(238, 20);
+    context.stroke();
+    context.shadowBlur = 0;
+    return new CanvasTexture(canvas);
+}
+
 function createGameplayBrickTexture(style) {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
@@ -215,6 +242,30 @@ function createGameplayBrickTexture(style) {
             context.lineTo(120, 8);
             context.stroke();
             break;
+        case 'toyBlock':
+            context.fillStyle = 'rgba(255,255,255,0.24)';
+            context.fillRect(8, 6, 112, 4);
+            context.fillStyle = 'rgba(0,0,0,0.12)';
+            context.fillRect(10, 37, 108, 3);
+            break;
+        case 'bioShell':
+            context.strokeStyle = 'rgba(255,255,255,0.24)';
+            context.lineWidth = 1.4;
+            context.beginPath();
+            context.moveTo(8, 28);
+            context.bezierCurveTo(40, 2, 86, 44, 120, 18);
+            context.stroke();
+            break;
+        case 'monolithSlab':
+            context.fillStyle = 'rgba(255,255,255,0.14)';
+            context.fillRect(7, 6, 114, 3);
+            context.fillStyle = 'rgba(0,0,0,0.26)';
+            context.fillRect(7, 38, 114, 3);
+            context.strokeStyle = 'rgba(255,255,255,0.16)';
+            context.lineWidth = 1.2;
+            traceRoundedRect(context, 2.5, 2.5, 123, 43, 3);
+            context.stroke();
+            break;
         default:
             context.fillStyle = 'rgba(255,255,255,0.18)';
             context.fillRect(8, 6, 112, 3);
@@ -262,104 +313,6 @@ function buildNeonScene(width, height) {
                 array[i * 3 + 1] = meta.y + Math.sin(time * 0.9 + meta.phase) * meta.drift;
             }
             stars.geometry.attributes.position.needsUpdate = true;
-        },
-    };
-}
-
-function buildBlacksiteScene(width, height) {
-    const group = new Group();
-    const ringMaterial = createLineMaterial('#78ffd6', 0.26);
-    const crossMaterial = createLineMaterial('#78ffd6', 0.18);
-
-    [90, 160, 240].forEach(radius => {
-        group.add(circleLine(radius, 96, ringMaterial));
-    });
-
-    const crosshair = new LineSegments(new BufferGeometry(), crossMaterial);
-    const crossPositions = new Float32Array([
-        -width * 0.28, 0, -30, width * 0.28, 0, -30,
-        0, -height * 0.24, -30, 0, height * 0.24, -30,
-    ]);
-    crosshair.geometry.setAttribute('position', new BufferAttribute(crossPositions, 3));
-    group.add(crosshair);
-
-    const sweep = new Mesh(
-        new CircleGeometry(260, 72, 0, 0.58),
-        new MeshBasicMaterial({
-            color: '#78ffd6',
-            transparent: true,
-            opacity: 0.14,
-            blending: AdditiveBlending,
-            depthWrite: false,
-        }),
-    );
-    group.add(sweep);
-
-    return {
-        group,
-        setPalette(palette) {
-            ringMaterial.color.set(palette.accent);
-            crossMaterial.color.set(palette.text2);
-            sweep.material.color.set(palette.accent);
-        },
-        update(time) {
-            sweep.rotation.z = -time * 0.72;
-            group.position.set(width * 0.26, height * 0.26, 0);
-        },
-    };
-}
-
-function buildAbyssScene(width, height) {
-    const group = new Group();
-    const waveLines = [];
-    for (let i = 0; i < 5; i++) {
-        const line = lineStrip(createLineMaterial('#2bd4ff', 0.18), 42);
-        group.add(line);
-        waveLines.push({ line, band: i });
-    }
-
-    const bubbles = pointsCloud(createPointsMaterial('#8fffdc', 4.2, 0.28), 48);
-    const bubbleMeta = [];
-    for (let i = 0; i < 48; i++) {
-        bubbleMeta.push({
-            x: rand(-width / 2, width / 2),
-            y: rand(-height / 2, height / 2),
-            speed: rand(18, 46),
-            phase: rand(0, Math.PI * 2),
-        });
-    }
-    group.add(bubbles);
-
-    return {
-        group,
-        setPalette(palette) {
-            for (const entry of waveLines) entry.line.material.color.set(palette.accent);
-            bubbles.material.color.set(palette.text3);
-        },
-        update(time) {
-            for (const entry of waveLines) {
-                const line = entry.line;
-                for (let i = 0; i < 42; i++) {
-                    const x = -width / 2 + i * (width / 41);
-                    const yBase = -height * 0.28 + entry.band * 110;
-                    const y = yBase + Math.sin(time * 1.3 + i * 0.28 + entry.band) * 18;
-                    setPoint(line.geometry, i, x, y, -40);
-                }
-                line.geometry.attributes.position.needsUpdate = true;
-            }
-
-            for (let i = 0; i < bubbleMeta.length; i++) {
-                const bubble = bubbleMeta[i];
-                const y = ((bubble.y - time * bubble.speed + height / 2) % height) - height / 2;
-                setPoint(
-                    bubbles.geometry,
-                    i,
-                    bubble.x + Math.sin(time * 0.8 + bubble.phase) * 10,
-                    y,
-                    -10,
-                );
-            }
-            bubbles.geometry.attributes.position.needsUpdate = true;
         },
     };
 }
@@ -527,6 +480,507 @@ function buildStormScene(width, height) {
     };
 }
 
+function buildAuroraPopScene(width, height) {
+    const group = new Group();
+    const sun = createSoftDisc('#ffec75', 180, 0.14);
+    sun.position.set(width * 0.32, height * 0.18, -96);
+    group.add(sun);
+
+    const ribbons = [];
+    for (let i = 0; i < 4; i++) {
+        const line = lineStrip(createLineMaterial('#ffffff', 0.2), 22);
+        group.add(line);
+        ribbons.push({ line, lane: i });
+    }
+
+    const balloons = [];
+    for (let i = 0; i < 5; i++) {
+        const glow = createSoftDisc('#ffd7ec', 54 + (i % 2) * 12, 0.12);
+        glow.position.set(-width * 0.34 + i * 160, height * 0.06 + (i % 3) * 42, -28 - i * 8);
+        group.add(glow);
+        const string = lineStrip(createLineMaterial('#fffaf5', 0.18), 8);
+        group.add(string);
+        balloons.push({ glow, string, lane: i });
+    }
+
+    const confetti = pointsCloud(createPointsMaterial('#fffaf5', 5.4, 0.32), 72);
+    const confettiMeta = [];
+    for (let i = 0; i < 72; i++) {
+        confettiMeta.push({
+            x: rand(-width / 2, width / 2),
+            y: rand(-height / 2, height / 2),
+            speed: rand(8, 18),
+            sway: rand(8, 24),
+            phase: rand(0, Math.PI * 2),
+        });
+    }
+    group.add(confetti);
+
+    return {
+        group,
+        setPalette(palette) {
+            sun.material.color.set(palette.accent);
+            ribbons.forEach((entry, index) => entry.line.material.color.set(index % 2 === 0 ? palette.text2 : palette.text3));
+            balloons.forEach((entry, index) => entry.glow.material.color.set(index % 3 === 0 ? palette.text2 : index % 3 === 1 ? palette.text3 : palette.accent));
+            balloons.forEach(entry => entry.string.material.color.set(palette.text1));
+            confetti.material.color.set(palette.text1);
+        },
+        update(time, snapshot) {
+            const pulse = snapshot?.depthPulse ?? 0;
+            sun.scale.setScalar(1 + pulse * 0.18 + Math.sin(time * 0.6) * 0.03);
+            ribbons.forEach(entry => {
+                const baseY = -height * 0.08 + entry.lane * 70;
+                for (let i = 0; i < 22; i++) {
+                    const x = -width / 2 + i * (width / 21);
+                    const y = baseY + Math.sin(time * 1.4 + i * 0.34 + entry.lane) * (18 + entry.lane * 2);
+                    setPoint(entry.line.geometry, i, x, y, -42);
+                }
+                entry.line.geometry.attributes.position.needsUpdate = true;
+            });
+            balloons.forEach(entry => {
+                entry.glow.position.y += Math.sin(time * 1 + entry.lane) * 0.45;
+                const gx = entry.glow.position.x;
+                const gy = entry.glow.position.y;
+                for (let i = 0; i < 8; i++) {
+                    const t = i / 7;
+                    setPoint(
+                        entry.string.geometry,
+                        i,
+                        gx + Math.sin(time * 1.6 + t * 5 + entry.lane) * 6,
+                        gy - 42 - t * 76,
+                        -26,
+                    );
+                }
+                entry.string.geometry.attributes.position.needsUpdate = true;
+            });
+            for (let i = 0; i < confettiMeta.length; i++) {
+                const mote = confettiMeta[i];
+                const y = ((mote.y + time * mote.speed + height / 2) % height) - height / 2;
+                setPoint(
+                    confetti.geometry,
+                    i,
+                    mote.x + Math.sin(time * 0.8 + mote.phase) * mote.sway,
+                    y,
+                    -10,
+                );
+            }
+            confetti.geometry.attributes.position.needsUpdate = true;
+        },
+    };
+}
+
+function buildPrismLagoonScene(width, height) {
+    const group = new Group();
+    const sun = createSoftDisc('#8ef3ff', 210, 0.12);
+    sun.position.set(width * 0.28, height * 0.2, -104);
+    group.add(sun);
+
+    const water = new Mesh(
+        new PlaneGeometry(width * 1.05, height * 0.56),
+        new MeshBasicMaterial({
+            color: '#ffffff',
+            transparent: true,
+            opacity: 0.08,
+            blending: AdditiveBlending,
+            depthWrite: false,
+        }),
+    );
+    water.position.set(0, -height * 0.22, -54);
+    group.add(water);
+
+    const ripples = [];
+    for (let i = 0; i < 5; i++) {
+        const line = lineStrip(createLineMaterial('#8ef3ff', 0.18), 30);
+        group.add(line);
+        ripples.push({ line, lane: i });
+    }
+
+    const prisms = [];
+    for (let i = 0; i < 4; i++) {
+        const prism = new Mesh(
+            new BoxGeometry(38 + i * 12, 180 + (i % 2) * 34, 24),
+            new MeshBasicMaterial({
+                color: '#ffffff',
+                transparent: true,
+                opacity: 0.12,
+                blending: AdditiveBlending,
+                depthWrite: false,
+            }),
+        );
+        prism.position.set(-width * 0.32 + i * 190, height * 0.02 + (i % 3) * 24, -22 - i * 6);
+        prism.rotation.z = i % 2 === 0 ? -0.14 : 0.14;
+        group.add(prism);
+        prisms.push(prism);
+    }
+
+    const motes = pointsCloud(createPointsMaterial('#f7fffe', 4.8, 0.26), 58);
+    const motesMeta = [];
+    for (let i = 0; i < 58; i++) {
+        motesMeta.push({
+            x: rand(-width / 2, width / 2),
+            y: rand(-height / 2, height / 2),
+            speed: rand(6, 16),
+            sway: rand(4, 14),
+            phase: rand(0, Math.PI * 2),
+        });
+    }
+    group.add(motes);
+
+    return {
+        group,
+        setPalette(palette) {
+            sun.material.color.set(palette.accent);
+            water.material.color.set(palette.text1);
+            ripples.forEach((entry, index) => entry.line.material.color.set(index % 2 === 0 ? palette.accent : palette.text3));
+            prisms.forEach((prism, index) => prism.material.color.set(index % 2 === 0 ? palette.text2 : palette.text1));
+            motes.material.color.set(palette.text1);
+        },
+        update(time, snapshot) {
+            const pulse = snapshot?.depthPulse ?? 0;
+            sun.scale.setScalar(1 + pulse * 0.2 + Math.sin(time * 0.8) * 0.025);
+            water.scale.x = 1 + pulse * 0.24;
+            water.scale.y = 1 + Math.sin(time * 1.1) * 0.04;
+            ripples.forEach(entry => {
+                const baseY = -height * 0.18 + entry.lane * 62;
+                for (let i = 0; i < 30; i++) {
+                    const x = -width / 2 + i * (width / 29);
+                    const y = baseY + Math.sin(time * 1.3 + i * 0.26 + entry.lane) * 14;
+                    setPoint(entry.line.geometry, i, x, y, -30);
+                }
+                entry.line.geometry.attributes.position.needsUpdate = true;
+            });
+            prisms.forEach((prism, index) => {
+                prism.position.y = height * 0.02 + (index % 3) * 24 + Math.sin(time * 0.6 + index) * 8;
+                prism.rotation.z += (index % 2 === 0 ? -1 : 1) * 0.0012;
+            });
+            for (let i = 0; i < motesMeta.length; i++) {
+                const mote = motesMeta[i];
+                const y = ((mote.y - time * mote.speed + height / 2) % height) - height / 2;
+                setPoint(
+                    motes.geometry,
+                    i,
+                    mote.x + Math.cos(time * 0.9 + mote.phase) * mote.sway,
+                    y,
+                    -8,
+                );
+            }
+            motes.geometry.attributes.position.needsUpdate = true;
+        },
+    };
+}
+
+function buildDioramaScene(width, height) {
+    const group = new Group();
+    const wall = new Mesh(
+        new PlaneGeometry(width * 0.8, height * 0.62),
+        new MeshBasicMaterial({
+            color: '#fff5d9',
+            transparent: true,
+            opacity: 0.1,
+            blending: AdditiveBlending,
+            depthWrite: false,
+        }),
+    );
+    wall.position.set(0, height * 0.04, -110);
+    group.add(wall);
+
+    const floor = new Mesh(
+        new PlaneGeometry(width * 0.92, height * 0.52),
+        new MeshBasicMaterial({
+            color: '#ffcf66',
+            transparent: true,
+            opacity: 0.1,
+            blending: AdditiveBlending,
+            depthWrite: false,
+        }),
+    );
+    floor.position.set(0, -height * 0.24, -40);
+    floor.rotation.x = -1.08;
+    group.add(floor);
+
+    const sidePanels = [-1, 1].map(sign => {
+        const panel = new Mesh(
+            new PlaneGeometry(width * 0.18, height * 0.6),
+            new MeshBasicMaterial({
+                color: '#fff1c2',
+                transparent: true,
+                opacity: 0.08,
+                blending: AdditiveBlending,
+                depthWrite: false,
+            }),
+        );
+        panel.position.set(sign * width * 0.34, -height * 0.02, -78);
+        panel.rotation.y = sign * 0.72;
+        group.add(panel);
+        return panel;
+    });
+
+    const props = [];
+    const propPalette = ['#ffcf66', '#8fe6ff', '#ff8d67'];
+    for (let i = 0; i < 7; i++) {
+        const prop = new Mesh(
+            new BoxGeometry(46 + (i % 3) * 16, 32 + (i % 2) * 14, 22),
+            new MeshBasicMaterial({
+                color: propPalette[i % propPalette.length],
+                transparent: true,
+                opacity: 0.16,
+                blending: AdditiveBlending,
+                depthWrite: false,
+            }),
+        );
+        prop.position.set(-width * 0.28 + i * 92, -height * 0.28 + (i % 2) * 10, -12 - (i % 3) * 8);
+        prop.rotation.x = -0.24;
+        prop.rotation.y = (i % 2 === 0 ? -1 : 1) * 0.18;
+        group.add(prop);
+        props.push(prop);
+    }
+
+    const dust = pointsCloud(createPointsMaterial('#fff5d9', 4.4, 0.28), 56);
+    const dustMeta = [];
+    for (let i = 0; i < 56; i++) {
+        dustMeta.push({
+            x: rand(-width / 2, width / 2),
+            y: rand(-height / 2, height / 2),
+            phase: rand(0, Math.PI * 2),
+            drift: rand(6, 16),
+        });
+    }
+    group.add(dust);
+
+    return {
+        group,
+        setPalette(palette) {
+            wall.material.color.set(palette.text1);
+            floor.material.color.set(palette.accent);
+            sidePanels[0].material.color.set(palette.text2);
+            sidePanels[1].material.color.set(palette.text3);
+            props.forEach((prop, index) => prop.material.color.set(index % 2 === 0 ? palette.text2 : palette.text3));
+            dust.material.color.set(palette.text1);
+        },
+        update(time, snapshot) {
+            const pulse = snapshot?.depthPulse ?? 0;
+            wall.scale.setScalar(1 + pulse * 0.24);
+            floor.scale.x = 1 + pulse * 0.34;
+            floor.scale.y = 1 + pulse * 0.18;
+            group.rotation.z = Math.sin(time * 0.18) * 0.012;
+            props.forEach((prop, index) => {
+                prop.position.y = -height * 0.28 + (index % 2) * 10 + Math.sin(time * 0.9 + index) * 6;
+                prop.rotation.y += Math.sin(time * 0.35 + index) * 0.0008;
+            });
+            for (let i = 0; i < dustMeta.length; i++) {
+                const mote = dustMeta[i];
+                setPoint(
+                    dust.geometry,
+                    i,
+                    mote.x + Math.cos(time * 0.7 + mote.phase) * mote.drift,
+                    mote.y + Math.sin(time * 0.8 + mote.phase) * mote.drift * 0.5,
+                    -22,
+                );
+            }
+            dust.geometry.attributes.position.needsUpdate = true;
+        },
+    };
+}
+
+function buildBiomechScene(width, height) {
+    const group = new Group();
+    const membranes = [
+        createSoftDisc('#6cffba', 220, 0.08),
+        createSoftDisc('#83ffc8', 170, 0.06),
+        createSoftDisc('#b4ffd8', 260, 0.05),
+    ];
+    membranes[0].position.set(-width * 0.18, height * 0.08, -60);
+    membranes[1].position.set(width * 0.14, -height * 0.02, -42);
+    membranes[2].position.set(width * 0.24, -height * 0.22, -70);
+    membranes.forEach(membrane => group.add(membrane));
+
+    const rings = [];
+    [90, 150, 220].forEach((radius, index) => {
+        const ring = circleLine(radius, 84, createLineMaterial('#83ffc8', 0.22));
+        ring.scale.set(1.2 - index * 0.12, 0.74 + index * 0.08, 1);
+        ring.rotation.z = index * 0.38;
+        group.add(ring);
+        rings.push(ring);
+    });
+
+    const tendrils = [];
+    for (let i = 0; i < 4; i++) {
+        const line = lineStrip(createLineMaterial('#b4ffd8', 0.18), 28);
+        group.add(line);
+        tendrils.push({ line, lane: i });
+    }
+
+    const spores = pointsCloud(createPointsMaterial('#6cffba', 5.6, 0.3), 62);
+    const sporeMeta = [];
+    for (let i = 0; i < 62; i++) {
+        sporeMeta.push({
+            x: rand(-width / 2, width / 2),
+            y: rand(-height / 2, height / 2),
+            speed: rand(10, 24),
+            sway: rand(6, 18),
+            phase: rand(0, Math.PI * 2),
+        });
+    }
+    group.add(spores);
+
+    return {
+        group,
+        setPalette(palette) {
+            membranes[0].material.color.set(palette.accent);
+            membranes[1].material.color.set(palette.text2);
+            membranes[2].material.color.set(palette.text3);
+            rings.forEach((ring, index) => ring.material.color.set(index === 1 ? palette.text3 : palette.accent));
+            tendrils.forEach((entry, index) => entry.line.material.color.set(index % 2 === 0 ? palette.text2 : palette.text3));
+            spores.material.color.set(palette.accent);
+        },
+        update(time, snapshot) {
+            const pulse = 1 + Math.sin(time * 1.8) * 0.04 + (snapshot?.depthPulse ?? 0) * 0.22;
+            membranes[0].scale.setScalar(pulse);
+            membranes[1].scale.setScalar(1 + Math.sin(time * 1.4 + 0.8) * 0.05 + (snapshot?.depthPulse ?? 0) * 0.18);
+            membranes[2].scale.setScalar(1 + Math.sin(time * 1.2 + 1.7) * 0.06 + (snapshot?.depthPulse ?? 0) * 0.2);
+            rings.forEach((ring, index) => {
+                ring.rotation.z += 0.0024 + index * 0.0008;
+            });
+            tendrils.forEach(entry => {
+                for (let i = 0; i < 28; i++) {
+                    const x = -width / 2 + i * (width / 27);
+                    const baseY = -height * 0.24 + entry.lane * 120;
+                    const y = baseY + Math.sin(time * 1.5 + i * 0.28 + entry.lane) * 26;
+                    setPoint(entry.line.geometry, i, x, y, -18);
+                }
+                entry.line.geometry.attributes.position.needsUpdate = true;
+            });
+            for (let i = 0; i < sporeMeta.length; i++) {
+                const mote = sporeMeta[i];
+                const y = ((mote.y + time * mote.speed + height / 2) % height) - height / 2;
+                setPoint(
+                    spores.geometry,
+                    i,
+                    mote.x + Math.sin(time * 0.9 + mote.phase) * mote.sway,
+                    y,
+                    -8,
+                );
+            }
+            spores.geometry.attributes.position.needsUpdate = true;
+        },
+    };
+}
+
+function buildMonolithScene(width, height) {
+    const group = new Group();
+    const floor = new Mesh(
+        new PlaneGeometry(width * 0.96, height * 0.72),
+        new MeshBasicMaterial({
+            color: '#d9d1c2',
+            transparent: true,
+            opacity: 0.08,
+            blending: AdditiveBlending,
+            depthWrite: false,
+        }),
+    );
+    floor.position.set(0, -height * 0.22, -46);
+    floor.rotation.x = -1.18;
+    group.add(floor);
+
+    const slabs = [];
+    for (let i = 0; i < 5; i++) {
+        const slab = new Mesh(
+            new BoxGeometry(70 + i * 12, 320 + i * 24, 34),
+            new MeshBasicMaterial({
+                color: '#d9d1c2',
+                transparent: true,
+                opacity: 0.11,
+                blending: AdditiveBlending,
+                depthWrite: false,
+            }),
+        );
+        slab.position.set(-width * 0.32 + i * 160, -height * 0.04 + (i % 2) * 22, -30 - i * 6);
+        slab.rotation.x = -0.1;
+        slab.rotation.y = (i % 2 === 0 ? -1 : 1) * 0.14;
+        group.add(slab);
+        slabs.push(slab);
+    }
+
+    const rails = [];
+    for (let i = 0; i < 7; i++) {
+        const line = lineStrip(createLineMaterial('#d9d1c2', 0.12), 2);
+        group.add(line);
+        rails.push({ line, lane: i });
+    }
+
+    const dust = pointsCloud(createPointsMaterial('#f2eee6', 3.6, 0.24), 46);
+    const dustMeta = [];
+    for (let i = 0; i < 46; i++) {
+        dustMeta.push({
+            x: rand(-width / 2, width / 2),
+            y: rand(-height / 2, height / 2),
+            speed: rand(12, 24),
+        });
+    }
+    group.add(dust);
+
+    return {
+        group,
+        setPalette(palette) {
+            floor.material.color.set(palette.text2);
+            slabs.forEach((slab, index) => slab.material.color.set(index % 2 === 0 ? palette.text2 : palette.text3));
+            rails.forEach((entry, index) => entry.line.material.color.set(index % 2 === 0 ? palette.text3 : palette.accent));
+            dust.material.color.set(palette.text1);
+        },
+        update(time, snapshot) {
+            const pulse = snapshot?.depthPulse ?? 0;
+            floor.scale.x = 1 + pulse * 0.28;
+            floor.scale.y = 1 + pulse * 0.18;
+            slabs.forEach((slab, index) => {
+                slab.position.y = -height * 0.04 + (index % 2) * 22 + Math.sin(time * 0.38 + index) * 5;
+                slab.scale.y = 1 + pulse * (0.12 + index * 0.01);
+            });
+            rails.forEach(entry => {
+                const startX = -width / 2 + entry.lane * (width / 6);
+                setPoint(entry.line.geometry, 0, startX, -height / 2, -16);
+                setPoint(entry.line.geometry, 1, startX * 0.18, 0, -68);
+                entry.line.geometry.attributes.position.needsUpdate = true;
+            });
+            for (let i = 0; i < dustMeta.length; i++) {
+                const mote = dustMeta[i];
+                const y = ((mote.y - time * mote.speed + height / 2) % height) - height / 2;
+                setPoint(dust.geometry, i, mote.x, y, -6);
+            }
+            dust.geometry.attributes.position.needsUpdate = true;
+        },
+    };
+}
+
+function getBackgroundThemeProfile(themeKey) {
+    switch (themeKey) {
+        case 'auroraPop':
+            return { pulseScale: 0.05, shakeScale: 0.38 };
+        case 'prismLagoon':
+            return { pulseScale: 0.06, shakeScale: 0.4 };
+        case 'diorama':
+            return { pulseScale: 0.08, shakeScale: 0.55 };
+        case 'biomech':
+            return { pulseScale: 0.07, shakeScale: 0.5 };
+        case 'monolith':
+            return { pulseScale: 0.09, shakeScale: 0.42 };
+        default:
+            return { pulseScale: 0.03, shakeScale: 0.45 };
+    }
+}
+
+function getGameplayThemeProfile(themeKey) {
+    switch (themeKey) {
+        case 'diorama':
+            return { depthX: 7, depthY: 9, depthScale: 1.08, depthOpacity: 0.3, depthTint: 0.42, pulseScale: 0.05, lightBoost: 0.18 };
+        case 'biomech':
+            return { depthX: 6, depthY: 7, depthScale: 1.12, depthOpacity: 0.28, depthTint: 0.36, pulseScale: 0.045, lightBoost: 0.14 };
+        case 'monolith':
+            return { depthX: 10, depthY: 14, depthScale: 1.16, depthOpacity: 0.38, depthTint: 0.28, pulseScale: 0.065, lightBoost: 0.08 };
+        default:
+            return { depthX: 4, depthY: 5, depthScale: 1.04, depthOpacity: 0.16, depthTint: 0.34, pulseScale: 0.02, lightBoost: 0 };
+    }
+}
+
 class ShatterThreeBackgroundRenderer {
     constructor({ canvas, width, height }) {
         this.canvas = canvas;
@@ -563,11 +1017,14 @@ class ShatterThreeBackgroundRenderer {
         this.scene.add(this.stageRoot);
         this.themeScenes = {
             neon: buildNeonScene(width, height),
-            blacksite: buildBlacksiteScene(width, height),
-            abyss: buildAbyssScene(width, height),
             forge: buildForgeScene(width, height),
             shrine: buildShrineScene(width, height),
             storm: buildStormScene(width, height),
+            auroraPop: buildAuroraPopScene(width, height),
+            prismLagoon: buildPrismLagoonScene(width, height),
+            diorama: buildDioramaScene(width, height),
+            biomech: buildBiomechScene(width, height),
+            monolith: buildMonolithScene(width, height),
         };
 
         for (const handler of Object.values(this.themeScenes)) {
@@ -675,6 +1132,9 @@ class ShatterThreeBackgroundRenderer {
             ember: [1.05, 1.05],
             petal: [1.45, 0.82],
             shard: [1.3, 0.92],
+            confetti: [1.5, 0.5],
+            spore: [1.4, 1.4],
+            dustShard: [1.8, 0.42],
             spark: [1.0, 1.0],
         };
         const [sx, sy] = styleScale[snapshot.particleStyle] || styleScale.spark;
@@ -710,6 +1170,9 @@ class ShatterThreeBackgroundRenderer {
             ember: 0.22,
             inkRibbon: 0.28,
             arc: 0.34,
+            ribbonArc: 0.3,
+            tendon: 0.24,
+            slabEcho: 0.18,
             plasma: 0.26,
         };
         const trailColor = snapshot.effectFlags.megaBall
@@ -788,12 +1251,16 @@ class ShatterThreeBackgroundRenderer {
         this.updateTheme(snapshot.themeKey, snapshot.palette);
 
         const handler = this.themeScenes[snapshot.themeKey];
+        const profile = getBackgroundThemeProfile(snapshot.themeKey);
         if (handler) handler.update(snapshot.time, snapshot);
         this.updateEffects(snapshot);
 
         this.flashPlane.material.opacity = clamp(snapshot.flashAlpha * 0.35, 0, 0.28);
-        this.stageRoot.position.x = snapshot.shakeX * 0.45;
-        this.stageRoot.position.y = -snapshot.shakeY * 0.45;
+        this.stageRoot.position.x = snapshot.backgroundShakeX ?? (snapshot.shakeX * profile.shakeScale);
+        this.stageRoot.position.y = snapshot.backgroundShakeY !== undefined
+            ? -snapshot.backgroundShakeY
+            : -snapshot.shakeY * profile.shakeScale;
+        this.stageRoot.scale.setScalar(1 + (snapshot.depthPulse ?? 0) * profile.pulseScale);
 
         this.renderer.render(this.scene, this.camera);
     }
@@ -808,8 +1275,10 @@ class ShatterThreeGameplayRenderer {
         this.maxBricks = 1600;
         this.maxBalls = 220;
         this.activeBrickStyle = null;
+        this.activeThemeKey = null;
         this.dummy = new Object3D();
         this.instanceColor = new Color('#ffffff');
+        this.depthColor = new Color('#000000');
         this.brickTextureCache = {};
 
         if (!canvas) return;
@@ -841,7 +1310,16 @@ class ShatterThreeGameplayRenderer {
             transparent: true,
             depthWrite: false,
         });
+        this.brickDepthMaterial = new MeshBasicMaterial({
+            map: createGameplayBrickTexture('glass'),
+            transparent: true,
+            opacity: 0.16,
+            depthWrite: false,
+        });
         this.glowTexture = createParticleTexture();
+        this.brickDepthMesh = new InstancedMesh(new PlaneGeometry(1, 1), this.brickDepthMaterial, this.maxBricks);
+        this.brickDepthMesh.count = 0;
+        this.gameplayRoot.add(this.brickDepthMesh);
         this.brickMesh = new InstancedMesh(new PlaneGeometry(1, 1), this.brickMaterial, this.maxBricks);
         this.brickMesh.count = 0;
         this.gameplayRoot.add(this.brickMesh);
@@ -912,11 +1390,18 @@ class ShatterThreeGameplayRenderer {
             this.brickTextureCache[brickStyle] = createGameplayBrickTexture(brickStyle);
         }
         this.brickMaterial.map = this.brickTextureCache[brickStyle];
+        this.brickDepthMaterial.map = this.brickTextureCache[brickStyle];
         this.brickMaterial.needsUpdate = true;
+        this.brickDepthMaterial.needsUpdate = true;
     }
 
     updateBricks(snapshot) {
+        const profile = getGameplayThemeProfile(snapshot.themeKey);
+        const useDepthMesh = isBrickDepthMeshEnabled(snapshot.themeKey);
         const activeCount = Math.min(snapshot.brickBodies.length, this.maxBricks);
+        this.brickDepthMaterial.opacity = useDepthMesh
+            ? profile.depthOpacity + (snapshot.depthPulse ?? 0) * 0.22
+            : 0;
 
         for (let i = 0; i < activeCount; i++) {
             const brick = snapshot.brickBodies[i];
@@ -929,8 +1414,25 @@ class ShatterThreeGameplayRenderer {
             this.dummy.updateMatrix();
             this.brickMesh.setMatrixAt(i, this.dummy.matrix);
             this.brickMesh.setColorAt(i, this.instanceColor.set(brick.color));
+
+            if (useDepthMesh) {
+                this.dummy.position.set(
+                    this.toSceneX(brick.x + brick.width / 2) + profile.depthX,
+                    this.toSceneY(brick.y + brick.height / 2) - profile.depthY,
+                    22,
+                );
+                this.dummy.scale.set(brick.width * profile.depthScale, brick.height * profile.depthScale, 1);
+                this.dummy.updateMatrix();
+                this.brickDepthMesh.setMatrixAt(i, this.dummy.matrix);
+                this.brickDepthMesh.setColorAt(i, this.depthColor.set(brick.color).multiplyScalar(profile.depthTint));
+            }
         }
 
+        this.brickDepthMesh.count = useDepthMesh ? activeCount : 0;
+        if (useDepthMesh) {
+            this.brickDepthMesh.instanceMatrix.needsUpdate = true;
+            if (this.brickDepthMesh.instanceColor) this.brickDepthMesh.instanceColor.needsUpdate = true;
+        }
         this.brickMesh.count = activeCount;
         this.brickMesh.instanceMatrix.needsUpdate = true;
         if (this.brickMesh.instanceColor) this.brickMesh.instanceColor.needsUpdate = true;
@@ -943,7 +1445,11 @@ class ShatterThreeGameplayRenderer {
             light.position.y = this.toSceneY(brick.y + brick.height / 2);
             light.material.color.set(brick.color);
             light.material.opacity = brick.lightAlpha;
-            light.scale.set(brick.width * brick.lightScale, brick.height * (brick.lightScale + 0.65), 1);
+            light.scale.set(
+                brick.width * (brick.lightScale + profile.lightBoost),
+                brick.height * (brick.lightScale + 0.65 + profile.lightBoost),
+                1,
+            );
         }
 
         for (let i = activeCount; i < this.brickLightSprites.length; i++) {
@@ -983,13 +1489,16 @@ class ShatterThreeGameplayRenderer {
 
     render(snapshot) {
         if (!this.ready || !snapshot) return;
+        const profile = getGameplayThemeProfile(snapshot.themeKey);
         this.updateTheme(snapshot.brickStyle || 'glass');
-        this.gameplayRoot.position.x = snapshot.useThreeGameplay ? snapshot.shakeX * 0.3 : 0;
-        this.gameplayRoot.position.y = snapshot.useThreeGameplay ? -snapshot.shakeY * 0.3 : 0;
+        this.gameplayRoot.position.x = snapshot.useThreeGameplay ? (snapshot.gameplayShakeX ?? 0) : 0;
+        this.gameplayRoot.position.y = snapshot.useThreeGameplay ? -(snapshot.gameplayShakeY ?? 0) : 0;
+        this.gameplayRoot.scale.setScalar(snapshot.useThreeGameplay ? 1 + (snapshot.depthPulse ?? 0) * profile.pulseScale : 1);
         if (snapshot.useThreeGameplay) {
             this.updateBricks(snapshot);
             this.updateBalls(snapshot);
         } else {
+            this.brickDepthMesh.count = 0;
             this.brickMesh.count = 0;
             for (const light of this.brickLightSprites) light.visible = false;
             for (const glow of this.ballGlowSprites) glow.visible = false;
@@ -1008,6 +1517,7 @@ class ShatterThreeOverlayRenderer {
         this.maxBrickFlashes = 160;
         this.maxItemGlows = 48;
         this.maxBulletGlows = 24;
+        this.maxImpactSlices = 120;
 
         if (!canvas) return;
 
@@ -1048,6 +1558,7 @@ class ShatterThreeOverlayRenderer {
 
         this.brickFlashTexture = createBrickFlashTexture();
         this.haloTexture = createParticleTexture();
+        this.slashTexture = createSlashTexture();
         this.brickFlashSprites = Array.from({ length: this.maxBrickFlashes }, () => {
             const sprite = new Sprite(new SpriteMaterial({
                 map: this.brickFlashTexture,
@@ -1059,6 +1570,21 @@ class ShatterThreeOverlayRenderer {
             }));
             sprite.visible = false;
             sprite.position.z = 140;
+            this.overlayRoot.add(sprite);
+            return sprite;
+        });
+
+        this.impactSliceSprites = Array.from({ length: this.maxImpactSlices }, () => {
+            const sprite = new Sprite(new SpriteMaterial({
+                map: this.slashTexture,
+                color: '#ffffff',
+                transparent: true,
+                opacity: 0,
+                blending: AdditiveBlending,
+                depthWrite: false,
+            }));
+            sprite.visible = false;
+            sprite.position.z = 146;
             this.overlayRoot.add(sprite);
             return sprite;
         });
@@ -1170,6 +1696,30 @@ class ShatterThreeOverlayRenderer {
         }
     }
 
+    updateImpactSlices(snapshot) {
+        const activeCount = Math.min(snapshot.impactSlices.length, this.impactSliceSprites.length);
+
+        for (let i = 0; i < activeCount; i++) {
+            const slice = snapshot.impactSlices[i];
+            const sprite = this.impactSliceSprites[i];
+            sprite.visible = true;
+            sprite.position.x = this.toSceneX(slice.x);
+            sprite.position.y = this.toSceneY(slice.y);
+            sprite.material.color.set(slice.color);
+            sprite.material.opacity = clamp(slice.life * 0.86, 0, 0.82);
+            sprite.material.rotation = slice.angle;
+            sprite.scale.set(
+                slice.length,
+                slice.thickness * (1.2 + (1 - slice.life) * 0.6),
+                1,
+            );
+        }
+
+        for (let i = activeCount; i < this.impactSliceSprites.length; i++) {
+            this.impactSliceSprites[i].visible = false;
+        }
+    }
+
     updateBulletGlows(snapshot) {
         const activeCount = Math.min(snapshot.bulletGlows.length, this.bulletGlowSprites.length);
 
@@ -1227,9 +1777,11 @@ class ShatterThreeOverlayRenderer {
         if (!this.ready || !snapshot) return;
 
         this.flashPlane.material.opacity = clamp(snapshot.overlayFlashAlpha * 1.15, 0, 0.42);
-        this.overlayRoot.position.x = snapshot.shakeX * 0.65;
-        this.overlayRoot.position.y = -snapshot.shakeY * 0.65;
+        this.overlayRoot.position.x = snapshot.overlayShakeX ?? 0;
+        this.overlayRoot.position.y = -(snapshot.overlayShakeY ?? 0);
+        this.overlayRoot.scale.setScalar(1 + (snapshot.depthPulse ?? 0) * 0.025);
         this.updateBrickFlashes(snapshot);
+        this.updateImpactSlices(snapshot);
         this.updateItemGlows(snapshot);
         this.updateBulletGlows(snapshot);
         this.updatePaddleAura(snapshot);

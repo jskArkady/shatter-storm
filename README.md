@@ -1,6 +1,6 @@
 # ⚡ Shatter Storm
 
-A browser-based brick breaker game with neon graphics, satisfying destruction, and endless stages.
+A browser-based brick breaker game with layered Three.js visuals, satisfying destruction, and endless stages.
 
 ## 🎮 How to Play
 
@@ -25,14 +25,17 @@ Open `index.html` in any modern browser. No server or build tools required.
 
 ## 🎨 Themes
 
-6 selectable world themes, each with distinct background motion, brick materials, trails, and HUD styling:
+9 selectable world themes, each with distinct background motion, brick materials, trails, and HUD styling:
 
 - **Neon** — Original laser-grid cyber arcade
-- **Black Site** — Tactical radar sweep and wireframe panels
-- **Abyss** — Deep sea caustics and submerged glow
 - **Forge** — Furnace haze and forged metal surfaces
 - **Shrine Bloom** — Ink wash, lacquer tiles, and drifting petals
 - **Storm Circuit** — Electric rain and overloaded grid flashes
+- **Aurora Pop** — Pastel balloons, candy glass, and bright confetti drift
+- **Prism Lagoon** — Sunlit ripples, glass prisms, and airy aqua bloom
+- **Miniature City** — Tilted tabletop set, toy-plastic bricks, and ribbon trails
+- **Biomech Hive** — Organic membranes, spores, and wet tendon streaks
+- **Brutal Monolith** — Heavy slab geometry, void dust, and brutalist impact echoes
 
 ## ⚡ Items
 
@@ -93,10 +96,12 @@ Recent rendering optimizations keep brick destruction effects stable without cha
 - Bullet glows and paddle aura now use that same overlay layer, leaving the 2D canvas to draw the crisp gameplay cores
 - Brick bodies, weak brick glow, and ball cores now render through a middle Three.js gameplay canvas, while the 2D canvas keeps brick HP labels, HUD, and other crisp overlays
 - Full-screen white flashes were removed in favor of local brick impact feedback
+- `Aurora Pop` and `Prism Lagoon` add lighter, more colorful Three.js worlds, while `Miniature City`, `Biomech Hive`, and `Brutal Monolith` keep the heavier pseudo-3D direction
+- Brick hits now drive directional camera kick, depth pulse, and overlay slash effects instead of relying on global screen flashes
 
 ## 🏆 Ranking
 
-Top 5 scores are saved in `localStorage`. View rankings from the main menu. Each entry shows the date and time (hour:minute).
+Top 10 scores are saved in `localStorage`. View rankings from the main menu. Each entry shows the date and time (hour:minute).
 
 ---
 

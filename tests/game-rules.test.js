@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
 
 const {
     advanceImpactBursts,
+    advanceImpactSlices,
     collectActiveBallBodies,
     collectActiveBrickBodies,
     collectActiveBulletGlows,
@@ -10,20 +12,27 @@ const {
     collectActiveBrickFlashes,
     countLevelBricks,
     createBrickImpactBurst,
+    createImpactSlice,
     densifyStageRows,
     getBrickLayoutMetrics,
+    isBrickDepthMeshEnabled,
     getComboLabel,
     getBrickRowRange,
     getBrickScore,
+    getRankingLayout,
+    getStageBulletCapacity,
+    getThemeHitProfile,
     loadRankingStore,
     pickMultiBallSource,
     resolvePaddleAura,
     resolveComboPulse,
+    resolveShakeLayers,
     resolveThreeEffectBridge,
     resolveThreeGameplayBridge,
     resolveThreeOverlayBridge,
     resolveFrameOutcome,
     saveRankingStore,
+    trimRankingEntries,
 } = require('../game-rules.js');
 
 test('stage clear takes priority over simultaneous ball loss without consuming a life', () => {
@@ -53,6 +62,13 @@ test('brick score scales upward for endless-stage hp values', () => {
     assert.equal(getBrickScore(3), 50);
     assert.equal(getBrickScore(4), 80);
     assert.equal(getBrickScore(8), 250);
+});
+
+test('getStageBulletCapacity adds 10 bullets every 10 stages', () => {
+    assert.equal(getStageBulletCapacity(0, 10), 10);
+    assert.equal(getStageBulletCapacity(8, 10), 10);
+    assert.equal(getStageBulletCapacity(9, 10), 20);
+    assert.equal(getStageBulletCapacity(19, 10), 30);
 });
 
 test('getBrickLayoutMetrics packs bricks edge-to-edge when padding is removed', () => {
@@ -136,6 +152,44 @@ test('saveRankingStore reports storage failures instead of swallowing them', () 
     });
 });
 
+test('trimRankingEntries keeps only the top 10 scores in descending order', () => {
+    const ranking = Array.from({ length: 12 }, (_, index) => ({
+        name: `P${index}`,
+        score: 1200 - index * 50,
+        level: index + 1,
+        date: '04.23 10:00',
+    })).reverse();
+
+    assert.equal(trimRankingEntries(ranking, 10).length, 10);
+    assert.deepEqual(
+        trimRankingEntries(ranking, 10).map(entry => entry.score),
+        [1200, 1150, 1100, 1050, 1000, 950, 900, 850, 800, 750],
+    );
+});
+
+test('getRankingLayout expands a top-10 table to use the lower screen space more evenly', () => {
+    assert.deepEqual(
+        getRankingLayout(10),
+        {
+            titleY: 54,
+            titleSize: 40,
+            startY: 118,
+            rowHeight: 90,
+            headerFont: 'bold 18px sans-serif',
+            rankFont: '24px sans-serif',
+            bodyFont: 'bold 22px sans-serif',
+            metaFont: 'bold 14px sans-serif',
+            emptyFont: 'bold 22px sans-serif',
+            footerFontSize: 18,
+            headerLabelOffset: -16,
+            dividerOffset: 12,
+            firstRowOffset: 46,
+            footerY: 1160,
+            noticeY: 1132,
+        },
+    );
+});
+
 test('getBrickRowRange limits ball collision checks to overlapping brick rows', () => {
     assert.deepEqual(
         getBrickRowRange({
@@ -207,6 +261,52 @@ test('advanceImpactBursts decays living bursts and drops expired ones', () => {
         ]),
         [
             { x: 1, y: 2, baseRadius: 20, life: 0.8, decay: 0.2, color: '#fff' },
+        ],
+    );
+});
+
+test('getThemeHitProfile exposes stronger cinematic feedback for the monolith theme', () => {
+    assert.deepEqual(
+        getThemeHitProfile('monolith'),
+        {
+            hitParticles: 6,
+            breakParticles: 20,
+            kick: 12,
+            depthPulse: 0.2,
+            sliceLength: 1.8,
+            sliceThickness: 0.9,
+            sliceDecay: 0.19,
+        },
+    );
+});
+
+test('createImpactSlice derives an oriented slash payload from theme hit tuning', () => {
+    assert.deepEqual(
+        createImpactSlice(
+            { x: 20, y: 40, w: 44, h: 16 },
+            { color: '#9dffbf', nx: 0, ny: -1, destroyed: true, themeKey: 'diorama' },
+        ),
+        {
+            x: 42,
+            y: 48,
+            length: 86.13,
+            thickness: 4.42,
+            angle: 0,
+            life: 1,
+            decay: 0.17,
+            color: '#9dffbf',
+        },
+    );
+});
+
+test('advanceImpactSlices decays slices and drops expired ones', () => {
+    assert.deepEqual(
+        advanceImpactSlices([
+            { x: 1, y: 2, length: 30, thickness: 5, angle: 0, life: 1, decay: 0.2, color: '#fff' },
+            { x: 3, y: 4, length: 18, thickness: 3, angle: 1, life: 0.08, decay: 0.1, color: '#0ff' },
+        ]),
+        [
+            { x: 1, y: 2, length: 30, thickness: 5, angle: 0, life: 0.8, decay: 0.2, color: '#fff' },
         ],
     );
 });
@@ -313,6 +413,19 @@ test('resolvePaddleAura builds an overlay aura payload from paddle state and act
     );
 });
 
+test('resolveShakeLayers clamps heavy shake and keeps 2D labels aligned with Three gameplay bricks', () => {
+    const layers = resolveShakeLayers({ x: 30, y: -20, useThreeGameplay: true });
+
+    assert.equal(layers.worldX, 6);
+    assert.equal(layers.worldY, -5);
+    assert.equal(layers.gameplayX, layers.worldX);
+    assert.equal(layers.gameplayY, layers.worldY);
+    assert.equal(layers.backgroundX, 3.6);
+    assert.equal(layers.backgroundY, -3);
+    assert.equal(layers.overlayX, 6.6);
+    assert.equal(layers.overlayY, -5.5);
+});
+
 test('collectActiveBrickBodies keeps only alive bricks for the gameplay renderer', () => {
     assert.deepEqual(
         collectActiveBrickBodies([
@@ -325,6 +438,13 @@ test('collectActiveBrickBodies keeps only alive bricks for the gameplay renderer
             { x: 140, y: 58, width: 44, height: 16, row: 1, hp: 3, maxHp: 3, lightAlpha: 0.16, lightScale: 1.48 },
         ],
     );
+});
+
+test('isBrickDepthMeshEnabled disables the duplicate depth slab for the three newest themes only', () => {
+    assert.equal(isBrickDepthMeshEnabled?.('diorama'), false);
+    assert.equal(isBrickDepthMeshEnabled?.('biomech'), false);
+    assert.equal(isBrickDepthMeshEnabled?.('monolith'), false);
+    assert.equal(isBrickDepthMeshEnabled?.('neon'), true);
 });
 
 test('collectActiveBallBodies keeps gameplay balls unlit while preserving effect-aware color and radius', () => {
@@ -352,7 +472,7 @@ test('collectActiveBallBodies reduces core lighting when mega ball is active', (
             effects: { fireBall: 0, megaBall: 4000 },
         }),
         [
-            { x: 280, y: 360, radius: 21, color: '#ffd700', glowAlpha: 0, coreScale: 1.7, coreAlpha: 0.82 },
+            { x: 280, y: 360, radius: 21, color: '#ffd700', glowAlpha: 0, coreScale: 1.45, coreAlpha: 0.68 },
         ],
     );
 });
@@ -523,4 +643,13 @@ test('resolveThreeOverlayBridge falls back to 2D overlays when the WebGL overlay
     assert.equal(overlay.comboPulse, null);
     assert.deepEqual(overlay.bulletGlows, []);
     assert.equal(overlay.paddleAura, null);
+});
+
+test('game.js no longer keeps removed theme background and overlay branches', () => {
+    const gameSource = readFileSync(require.resolve('../game.js'), 'utf8');
+
+    assert.equal(gameSource.includes("case 'radarSweep':"), false);
+    assert.equal(gameSource.includes("case 'causticBands':"), false);
+    assert.equal(gameSource.includes("case 'vignette':"), false);
+    assert.equal(gameSource.includes("case 'mist':"), false);
 });

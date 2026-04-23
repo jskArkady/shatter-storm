@@ -39,6 +39,12 @@
         return BRICK_SCORE_BY_HP[maxHp] ?? BRICK_SCORE_BY_HP[BRICK_SCORE_BY_HP.length - 1];
     }
 
+    function getStageBulletCapacity(stageIndex, baseBullets) {
+        const stageNumber = (stageIndex ?? 0) + 1;
+        const bonusSteps = Math.floor(stageNumber / 10);
+        return (baseBullets ?? 0) + bonusSteps * 10;
+    }
+
     function cloneRows(rows) {
         return (rows || []).map(row => row.slice());
     }
@@ -65,6 +71,10 @@
         if (positives.length === 0) return 1;
         const sum = positives.reduce((acc, value) => acc + value, 0);
         return Math.max(1, Math.round(sum / positives.length));
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     function densifyStageRows(rows, stageIndex) {
@@ -135,6 +145,52 @@
         return { start, end };
     }
 
+    function trimRankingEntries(ranking, maxEntries) {
+        return [...(ranking || [])]
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+            .slice(0, Math.max(0, maxEntries || 0));
+    }
+
+    function getRankingLayout(maxEntries) {
+        if ((maxEntries ?? 0) >= 10) {
+            return {
+                titleY: 54,
+                titleSize: 40,
+                startY: 118,
+                rowHeight: 90,
+                headerFont: 'bold 18px sans-serif',
+                rankFont: '24px sans-serif',
+                bodyFont: 'bold 22px sans-serif',
+                metaFont: 'bold 14px sans-serif',
+                emptyFont: 'bold 22px sans-serif',
+                footerFontSize: 18,
+                headerLabelOffset: -16,
+                dividerOffset: 12,
+                firstRowOffset: 46,
+                footerY: 1160,
+                noticeY: 1132,
+            };
+        }
+
+        return {
+            titleY: 55,
+            titleSize: 34,
+            startY: 110,
+            rowHeight: 42,
+            headerFont: 'bold 13px sans-serif',
+            rankFont: '16px sans-serif',
+            bodyFont: '16px sans-serif',
+            metaFont: '12px sans-serif',
+            emptyFont: '17px sans-serif',
+            footerFontSize: 15,
+            headerLabelOffset: -10,
+            dividerOffset: 6,
+            firstRowOffset: 20,
+            footerY: 1155,
+            noticeY: 1128,
+        };
+    }
+
     function loadRankingStore(storage, key) {
         if (!storage || typeof storage.getItem !== 'function') {
             return { ranking: [], error: 'unavailable' };
@@ -197,12 +253,94 @@
         };
     }
 
+    function isBrickDepthMeshEnabled(themeKey) {
+        switch (themeKey) {
+            case 'diorama':
+            case 'biomech':
+            case 'monolith':
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    function getThemeHitProfile(themeKey) {
+        switch (themeKey) {
+            case 'diorama':
+                return {
+                    hitParticles: 10,
+                    breakParticles: 24,
+                    kick: 9,
+                    depthPulse: 0.18,
+                    sliceLength: 1.45,
+                    sliceThickness: 1.15,
+                    sliceDecay: 0.17,
+                };
+            case 'biomech':
+                return {
+                    hitParticles: 8,
+                    breakParticles: 22,
+                    kick: 7,
+                    depthPulse: 0.16,
+                    sliceLength: 1.25,
+                    sliceThickness: 1.5,
+                    sliceDecay: 0.13,
+                };
+            case 'monolith':
+                return {
+                    hitParticles: 6,
+                    breakParticles: 20,
+                    kick: 12,
+                    depthPulse: 0.2,
+                    sliceLength: 1.8,
+                    sliceThickness: 0.9,
+                    sliceDecay: 0.19,
+                };
+            default:
+                return {
+                    hitParticles: 4,
+                    breakParticles: 18,
+                    kick: 4,
+                    depthPulse: 0.08,
+                    sliceLength: 1.05,
+                    sliceThickness: 1,
+                    sliceDecay: 0.15,
+                };
+        }
+    }
+
+    function createImpactSlice(brick, { color, nx = 1, ny = 0, destroyed = false, themeKey = '' }) {
+        const profile = getThemeHitProfile(themeKey);
+        const baseLength = Math.max(brick.w, brick.h) * profile.sliceLength * (destroyed ? 1.35 : 1);
+        const baseThickness = Math.min(brick.w, brick.h) * 0.24 * profile.sliceThickness;
+        return {
+            x: brick.x + brick.w / 2,
+            y: brick.y + brick.h / 2,
+            length: Number(baseLength.toFixed(2)),
+            thickness: Number(baseThickness.toFixed(2)),
+            angle: Number((Math.atan2(ny, nx) + Math.PI / 2).toFixed(4)),
+            life: 1,
+            decay: profile.sliceDecay,
+            color,
+        };
+    }
+
     function advanceImpactBursts(bursts) {
         const next = [];
         for (const burst of bursts || []) {
             const life = burst.life - burst.decay;
             if (life <= 0) continue;
             next.push({ ...burst, life });
+        }
+        return next;
+    }
+
+    function advanceImpactSlices(slices) {
+        const next = [];
+        for (const slice of slices || []) {
+            const life = slice.life - slice.decay;
+            if (life <= 0) continue;
+            next.push({ ...slice, life });
         }
         return next;
     }
@@ -279,6 +417,23 @@
         };
     }
 
+    function resolveShakeLayers({ x = 0, y = 0, useThreeGameplay = false }) {
+        const worldScale = useThreeGameplay ? 0.3 : 0.38;
+        const worldX = Number(clamp(x * worldScale, -6, 6).toFixed(2));
+        const worldY = Number(clamp(y * worldScale, -5, 5).toFixed(2));
+
+        return {
+            worldX,
+            worldY,
+            gameplayX: worldX,
+            gameplayY: worldY,
+            backgroundX: Number((worldX * 0.6).toFixed(2)),
+            backgroundY: Number((worldY * 0.6).toFixed(2)),
+            overlayX: Number((worldX * 1.1).toFixed(2)),
+            overlayY: Number((worldY * 1.1).toFixed(2)),
+        };
+    }
+
     function collectActiveBrickBodies(bricks) {
         const bodies = [];
         for (const brick of bricks || []) {
@@ -304,8 +459,8 @@
         const radius = isMega ? ballRadius * megaScale : ballRadius;
         const color = isMega ? themeColors.megaBall : isFire ? themeColors.fireBall : themeColors.ball;
         const glowAlpha = 0;
-        const coreScale = isMega ? 1.7 : 2.25;
-        const coreAlpha = isMega ? 0.82 : 0.96;
+        const coreScale = isMega ? 1.45 : 2.25;
+        const coreAlpha = isMega ? 0.68 : 0.96;
 
         return (balls || []).map(ball => ({
             x: ball.x,
@@ -393,6 +548,7 @@
 
     return {
         advanceImpactBursts,
+        advanceImpactSlices,
         collectActiveBulletGlows,
         collectActiveBallBodies,
         collectActiveBrickFlashes,
@@ -400,19 +556,26 @@
         collectActiveBrickBodies,
         countLevelBricks,
         createBrickImpactBurst,
+        createImpactSlice,
         densifyStageRows,
         getBrickLayoutMetrics,
+        isBrickDepthMeshEnabled,
+        getRankingLayout,
+        getStageBulletCapacity,
         getComboLabel,
         getBrickRowRange,
         getBrickScore,
+        getThemeHitProfile,
         loadRankingStore,
         pickMultiBallSource,
         resolveComboPulse,
         resolvePaddleAura,
+        resolveShakeLayers,
         resolveThreeEffectBridge,
         resolveThreeGameplayBridge,
         resolveThreeOverlayBridge,
         resolveFrameOutcome,
         saveRankingStore,
+        trimRankingEntries,
     };
 });
