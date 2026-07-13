@@ -429,7 +429,6 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const rand = (a, b) => Math.random() * (b - a) + a;
 const randInt = (a, b) => Math.floor(rand(a, b + 1));
 const hsl = (h, s, l) => `hsl(${h},${s}%,${l}%)`;
-const dist = (x1, y1, x2, y2) => Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
 
 // ═══════════════════════════════════════════════════════════════
 // SOUND ENGINE
@@ -446,28 +445,28 @@ function ensureAudio() {
 function playSound(type) {
     if (!audioCtx) return;
     const now = audioCtx.currentTime;
-    const mkOsc = (freq, dur, wave = 'sine', vol = 0.12) => {
+    const createOscillator = (frequency, wave = 'sine', volume = 0.12) => {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = wave; osc.connect(gain); gain.connect(audioCtx.destination);
-        osc.frequency.setValueAtTime(freq, now);
-        gain.gain.setValueAtTime(vol, now);
+        osc.frequency.setValueAtTime(frequency, now);
+        gain.gain.setValueAtTime(volume, now);
         return { osc, gain };
     };
     switch (type) {
         case 'paddle': {
-            const { osc, gain } = mkOsc(440, 0.08, 'sine', 0.1);
+            const { osc, gain } = createOscillator(440, 'sine', 0.1);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
             osc.start(now); osc.stop(now + 0.08); break;
         }
         case 'brick': {
-            const { osc, gain } = mkOsc(250 + Math.random() * 300, 0.1, 'square', 0.08);
+            const { osc, gain } = createOscillator(250 + Math.random() * 300, 'square', 0.08);
             osc.frequency.exponentialRampToValueAtTime(80, now + 0.1);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
             osc.start(now); osc.stop(now + 0.1); break;
         }
         case 'item': {
-            const { osc, gain } = mkOsc(350, 0.25, 'sine', 0.13);
+            const { osc, gain } = createOscillator(350, 'sine', 0.13);
             osc.frequency.exponentialRampToValueAtTime(900, now + 0.2);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
             osc.start(now); osc.stop(now + 0.25); break;
@@ -484,26 +483,10 @@ function playSound(type) {
             }); break;
         }
         case 'bullet': {
-            const { osc, gain } = mkOsc(800, 0.06, 'square', 0.07);
+            const { osc, gain } = createOscillator(800, 'square', 0.07);
             osc.frequency.exponentialRampToValueAtTime(200, now + 0.06);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
             osc.start(now); osc.stop(now + 0.06); break;
-        }
-        case 'bomb': {
-            const { osc, gain } = mkOsc(80, 0.45, 'sine', 0.22);
-            osc.frequency.exponentialRampToValueAtTime(25, now + 0.45);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-            osc.start(now); osc.stop(now + 0.45);
-            const { osc: o2, gain: g2 } = mkOsc(200, 0.3, 'sawtooth', 0.12);
-            o2.frequency.exponentialRampToValueAtTime(40, now + 0.3);
-            g2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-            o2.start(now); o2.stop(now + 0.3); break;
-        }
-        case 'lightning': {
-            const { osc, gain } = mkOsc(2000, 0.18, 'sawtooth', 0.1);
-            osc.frequency.exponentialRampToValueAtTime(80, now + 0.18);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-            osc.start(now); osc.stop(now + 0.18); break;
         }
         case 'megaBall': {
             [0, 5, 12].forEach((note, i) => {
@@ -517,12 +500,12 @@ function playSound(type) {
             }); break;
         }
         case 'wall': {
-            const { osc, gain } = mkOsc(200, 0.04, 'sine', 0.05);
+            const { osc, gain } = createOscillator(200, 'sine', 0.05);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
             osc.start(now); osc.stop(now + 0.04); break;
         }
         case 'die': {
-            const { osc, gain } = mkOsc(400, 0.4, 'sawtooth', 0.13);
+            const { osc, gain } = createOscillator(400, 'sawtooth', 0.13);
             osc.frequency.exponentialRampToValueAtTime(80, now + 0.4);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
             osc.start(now); osc.stop(now + 0.4); break;
@@ -539,7 +522,7 @@ function playSound(type) {
             }); break;
         }
         case 'gameOver': {
-            const { osc, gain } = mkOsc(500, 0.6, 'sawtooth', 0.16);
+            const { osc, gain } = createOscillator(500, 'sawtooth', 0.16);
             osc.frequency.exponentialRampToValueAtTime(60, now + 0.6);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
             osc.start(now); osc.stop(now + 0.6); break;
@@ -577,21 +560,6 @@ function spawnCelebration(count = 120) {
             life: 1, decay: rand(0.004, 0.012),
             color: NEON[randInt(0, NEON.length - 1)],
             size: rand(3, 8),
-        });
-    }
-}
-function spawnExplosion(x, y, color, count = 40) {
-    const canAdd = MAX_PARTICLES - particles.length;
-    if (canAdd <= 0) return;
-    const n = Math.min(count, canAdd);
-    for (let i = 0; i < n; i++) {
-        const angle = (i / n) * Math.PI * 2;
-        const speed = rand(3, 10);
-        particles.push({
-            x, y,
-            vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-            life: 1, decay: rand(0.01, 0.025),
-            color, size: rand(3, 7),
         });
     }
 }
@@ -1536,7 +1504,7 @@ let bulletsLeft = BULLETS_PER_STAGE;
 let paddle = { x: W / 2, w: PADDLE_BASE_W, targetW: PADDLE_BASE_W };
 let mouseX = W / 2, mouseY = H / 2;
 let shake = { x: 0, y: 0, intensity: 0, kickX: 0, kickY: 0 };
-let effects = { widePaddle: 0, fireBall: 0, slowBall: 0, megaBall: 0 };
+let effects = { widePaddle: 0, fireBall: 0, megaBall: 0 };
 let stageTimer = 0;
 let nameInput = '';
 let frameCount = 0;
@@ -1557,9 +1525,7 @@ function getLevelSpeed(idx) {
 }
 
 function currentBallSpeed() {
-    let speed = BALL_BASE_SPEED * getLevelSpeed(level);
-    if (effects.slowBall > 0) speed *= 0.5;
-    return speed;
+    return BALL_BASE_SPEED * getLevelSpeed(level);
 }
 
 function createBall(x, y, angle, speed) {
@@ -1650,7 +1616,7 @@ function loadLevel(idx) {
     impactBursts = [];
     impactSlices = [];
     bulletsLeft = getStageBulletCapacity(idx, BULLETS_PER_STAGE);
-    effects = { widePaddle: 0, fireBall: 0, slowBall: 0, megaBall: 0 };
+    effects = { widePaddle: 0, fireBall: 0, megaBall: 0 };
     paddle.w = PADDLE_BASE_W;
     paddle.targetW = PADDLE_BASE_W;
     paddle.x = W / 2;
@@ -1783,19 +1749,6 @@ function tryDropItem(x, y) {
             return;
         }
     }
-}
-
-function destroyBrick(br, scoreMultiplier = 1) {
-    if (!br.alive) return;
-    br.alive = false; br.hp = 0;
-    const bx = br.x + br.w / 2, by = br.y + br.h / 2;
-    syncBrickLayerBrick(br);
-    applyBrickHitFeedback(br, { destroyed: true });
-    const pts = Math.floor(getBrickScore(br.maxHp) * scoreMultiplier);
-    score += pts;
-    addFloatingText(bx, by, `+${pts}`, theme.text3);
-    // Items can drop even from ability-triggered destructions
-    tryDropItem(bx, by);
 }
 
 function fireBullet() {
@@ -2669,7 +2622,6 @@ function renderHUD() {
     const active = [];
     if (effects.widePaddle > 0) active.push({ name: 'WIDE', color: theme.text3, t: effects.widePaddle / EFFECT_DURATION_MS });
     if (effects.fireBall > 0) active.push({ name: 'FIRE', color: theme.fireBall, t: effects.fireBall / EFFECT_DURATION_MS });
-    if (effects.slowBall > 0) active.push({ name: 'SLOW', color: theme.ball, t: effects.slowBall / EFFECT_DURATION_MS });
     if (effects.megaBall > 0) active.push({ name: 'MEGA', color: theme.megaBall, t: effects.megaBall / MEGA_BALL_DURATION_MS });
 
     if (active.length > 0) {
@@ -3507,11 +3459,7 @@ function getRenderSnapshot() {
     });
 
     return {
-        width: W,
-        height: H,
         time: performance.now() * 0.001,
-        frameCount,
-        state,
         themeKey: currentThemeKey,
         flashAlpha: 0,
         shakeX: shake.x,
@@ -3538,12 +3486,6 @@ function getRenderSnapshot() {
             text2: theme.text2,
             text3: theme.text3,
             grid: theme.grid,
-        },
-        counts: {
-            balls: balls.length,
-            particles: particles.length,
-            items: items.length,
-            bullets: bullets.length,
         },
     };
 }

@@ -67,12 +67,14 @@ Items drop from destroyed bricks (45% chance):
 ## 📁 Project Structure
 
 ```
-brick-breaker/
-├── index.html   — HTML shell (canvas + file links)
-├── style.css    — Minimal stylesheet
-├── game.js      — All game logic (~2500 lines)
-├── three-renderer.js — Three.js background renderer
-├── vendor/three.min.js — Local Three.js runtime
+shatter-storm/
+├── index.html               — Canvas layers and script loading
+├── style.css                — Page and canvas layout
+├── game.js                  — Game loop, input, audio, and 2D rendering
+├── game-rules.js            — Pure game rules and renderer payload helpers
+├── three-renderer.js        — Three.js background, gameplay, and overlay renderers
+├── tests/game-rules.test.js — Node tests for the pure rules
+├── vendor/three.min.js      — Local Three.js runtime
 └── README.md
 ```
 
