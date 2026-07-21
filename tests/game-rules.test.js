@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 
 const {
+    advanceFixedStepClock,
     advanceImpactBursts,
     advanceImpactSlices,
     collectActiveBallBodies,
@@ -34,6 +35,49 @@ const {
     saveRankingStore,
     trimRankingEntries,
 } = require('../game-rules.js');
+
+test('fixed-step clock produces the same 60 simulation steps at 60Hz and 120Hz', () => {
+    function countSteps(refreshRate) {
+        const stepMs = 1000 / 60;
+        let clock = { lastTimestamp: null, accumulatorMs: 0 };
+        let steps = 0;
+
+        for (let frame = 0; frame <= refreshRate; frame++) {
+            clock = advanceFixedStepClock({
+                timestamp: frame * (1000 / refreshRate),
+                lastTimestamp: clock.lastTimestamp,
+                accumulatorMs: clock.accumulatorMs,
+                stepMs,
+                maxDeltaMs: 250,
+            });
+            steps += clock.steps;
+        }
+
+        return steps;
+    }
+
+    assert.equal(countSteps(60), 60);
+    assert.equal(countSteps(120), 60);
+    assert.equal(countSteps(144), 60);
+});
+
+test('fixed-step clock clamps long frame gaps before calculating catch-up work', () => {
+    const initial = advanceFixedStepClock({
+        timestamp: 100,
+        stepMs: 1000 / 60,
+        maxDeltaMs: 250,
+    });
+    const resumed = advanceFixedStepClock({
+        timestamp: 5100,
+        lastTimestamp: initial.lastTimestamp,
+        accumulatorMs: initial.accumulatorMs,
+        stepMs: 1000 / 60,
+        maxDeltaMs: 250,
+    });
+
+    assert.equal(resumed.frameDeltaMs, 250);
+    assert.equal(resumed.steps, 15);
+});
 
 test('stage clear takes priority over simultaneous ball loss without consuming a life', () => {
     assert.deepEqual(
@@ -132,6 +176,32 @@ test('loadRankingStore reports invalid ranking data instead of failing silently'
             return '{"broken":true}';
         },
     };
+
+    assert.deepEqual(loadRankingStore(storage, 'ranking'), {
+        ranking: [],
+        error: 'invalid_data',
+    });
+});
+
+test('loadRankingStore filters malformed entries while preserving valid records', () => {
+    const storage = {
+        getItem() {
+            return JSON.stringify([
+                { name: '  ACE  ', score: 1200, level: 7, date: '07.21 10:00' },
+                {},
+                { name: 'BAD', score: '1200', level: 7, date: '07.21 10:00' },
+            ]);
+        },
+    };
+
+    assert.deepEqual(loadRankingStore(storage, 'ranking'), {
+        ranking: [{ name: 'ACE', score: 1200, level: 7, date: '07.21 10:00' }],
+        error: 'invalid_data',
+    });
+});
+
+test('loadRankingStore classifies malformed JSON as invalid data', () => {
+    const storage = { getItem: () => '[broken' };
 
     assert.deepEqual(loadRankingStore(storage, 'ranking'), {
         ranking: [],

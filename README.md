@@ -10,7 +10,8 @@ Open `index.html` in any modern browser. No server or build tools required.
 
 | Input | Action |
 |---|---|
-| Mouse | Move paddle |
+| Mouse / Touch | Move paddle |
+| Left / Right or A / D | Move paddle with the keyboard |
 | Click / Space | Shoot bullets (10 per stage) |
 | ESC / P | Pause |
 | Q | Quit & save score |
@@ -74,11 +75,24 @@ shatter-storm/
 ├── game-rules.js            — Pure game rules and renderer payload helpers
 ├── three-renderer.js        — Three.js background, gameplay, and overlay renderers
 ├── tests/game-rules.test.js — Node tests for the pure rules
+├── tests/browser-*.test.js  — Browser contracts and real boot smoke test
+├── package.json             — Development verification commands
 ├── vendor/three.min.js      — Local Three.js runtime
 └── README.md
 ```
 
 Built with HTML5 Canvas, CSS, JavaScript, and a locally vendored Three.js runtime. No server or build step required.
+
+## ✅ Verification
+
+Node.js 20 or newer is only required for development checks; it is not required to play the game.
+
+```sh
+npm run verify
+npm run test:browser
+```
+
+The first command runs syntax checks and the deterministic rules/contract tests. The browser smoke test looks for an installed Chrome or Chromium executable and verifies the real `index.html` boot path.
 
 ## ⚙️ Rendering
 

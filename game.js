@@ -322,6 +322,7 @@ const ShatterLogic = globalThis.ShatterLogic;
 if (!ShatterLogic) throw new Error('ShatterLogic failed to load');
 
 const {
+    advanceFixedStepClock,
     advanceImpactBursts,
     advanceImpactSlices,
     collectActiveBallBodies,
@@ -362,6 +363,10 @@ const COMBO_WINDOW_MS = 1800;
 const MULTI_BALL_COUNT = 15;
 const EFFECT_DURATION_MS = 10000;
 const MEGA_BALL_DURATION_MS = 8000;
+const FIXED_STEP_MS = 1000 / 60;
+const MAX_FRAME_DELTA_MS = 250;
+const STAGE_INTRO_DURATION_MS = 1500;
+const STAGE_CLEAR_DURATION_MS = 2000;
 const BRICK_FLASH_FRAMES = 6;
 const RANKING_KEY = 'shatterStorm_v7';
 const MAX_RANKING = 10;
@@ -372,6 +377,8 @@ const MEGA_BALL_SCALE = 3;
 const BULLETS_PER_STAGE = 10;
 const BULLET_SPEED = 14;
 const BULLET_W = 4, BULLET_H = 14;
+const PADDLE_KEYBOARD_SPEED = 18;
+const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 const NEON = ['#ff0055','#ff6600','#ffcc00','#00ff88','#00ccff','#8855ff','#ff33cc'];
 
@@ -404,10 +411,20 @@ const ctx = canvas.getContext('2d');
 canvas.width = W;
 canvas.height = H;
 const threeRenderer = globalThis.ShatterThreeBackgroundRenderer
-    ? new globalThis.ShatterThreeBackgroundRenderer({ canvas: sceneCanvas, width: W, height: H })
+    ? new globalThis.ShatterThreeBackgroundRenderer({
+        canvas: sceneCanvas,
+        width: W,
+        height: H,
+        maxTrails: MAX_BALLS,
+    })
     : null;
 const threeGameplayRenderer = globalThis.ShatterThreeGameplayRenderer
-    ? new globalThis.ShatterThreeGameplayRenderer({ canvas: sceneGameplayCanvas, width: W, height: H })
+    ? new globalThis.ShatterThreeGameplayRenderer({
+        canvas: sceneGameplayCanvas,
+        width: W,
+        height: H,
+        maxBalls: MAX_BALLS,
+    })
     : null;
 const threeOverlayRenderer = globalThis.ShatterThreeOverlayRenderer
     ? new globalThis.ShatterThreeOverlayRenderer({ canvas: sceneOverlayCanvas, width: W, height: H })
@@ -594,7 +611,10 @@ function applyBrickHitFeedback(br, { nx = 0, ny = -1, destroyed = false } = {}) 
     const profile = getThemeHitProfile(currentThemeKey);
     const centerX = br.x + br.w / 2;
     const centerY = br.y + br.h / 2;
-    const particleCount = destroyed ? profile.breakParticles : profile.hitParticles;
+    const baseParticleCount = destroyed ? profile.breakParticles : profile.hitParticles;
+    const particleCount = prefersReducedMotion
+        ? Math.max(2, Math.ceil(baseParticleCount * 0.25))
+        : baseParticleCount;
     const kick = profile.kick * (destroyed ? 1 : 0.7);
     const pulse = profile.depthPulse * (destroyed ? 1 : 0.75);
 
@@ -602,10 +622,12 @@ function applyBrickHitFeedback(br, { nx = 0, ny = -1, destroyed = false } = {}) 
     emitImpactSlice(br, { color, nx, ny, destroyed, themeKey: currentThemeKey });
     spawnParticles(centerX, centerY, color, particleCount);
 
-    depthPulse = Math.max(depthPulse, pulse);
-    shake.intensity = Math.max(shake.intensity, kick * 0.22);
-    shake.kickX += nx * kick * 0.38;
-    shake.kickY += ny * kick * 0.3;
+    if (!prefersReducedMotion) {
+        depthPulse = Math.max(depthPulse, pulse);
+        shake.intensity = Math.max(shake.intensity, kick * 0.22);
+        shake.kickX += nx * kick * 0.38;
+        shake.kickY += ny * kick * 0.3;
+    }
 }
 
 function renderParticles() {
@@ -1463,18 +1485,26 @@ function brickColor(br) {
 let rankingStorageNotice = '';
 
 function setRankingStorageNotice(error) {
-    if (error === 'invalid_data') rankingStorageNotice = 'Ranking data was reset.';
+    if (error === 'invalid_data') rankingStorageNotice = 'Invalid ranking entries were ignored.';
     else if (error === 'unavailable') rankingStorageNotice = 'Ranking storage is unavailable in this browser.';
     else rankingStorageNotice = '';
 }
 
+function getRankingStorage() {
+    try {
+        return globalThis.localStorage;
+    } catch {
+        return null;
+    }
+}
+
 function loadRanking() {
-    const { ranking, error } = loadRankingStore(globalThis.localStorage, RANKING_KEY);
+    const { ranking, error } = loadRankingStore(getRankingStorage(), RANKING_KEY);
     setRankingStorageNotice(error);
-    return ranking;
+    return trimRankingEntries(ranking, MAX_RANKING);
 }
 function saveRanking(ranking) {
-    const { error } = saveRankingStore(globalThis.localStorage, RANKING_KEY, ranking);
+    const { error } = saveRankingStore(getRankingStorage(), RANKING_KEY, ranking);
     setRankingStorageNotice(error);
 }
 function addRankingEntry(name, sc, lvl) {
@@ -1505,11 +1535,14 @@ let paddle = { x: W / 2, w: PADDLE_BASE_W, targetW: PADDLE_BASE_W };
 let mouseX = W / 2, mouseY = H / 2;
 let shake = { x: 0, y: 0, intensity: 0, kickX: 0, kickY: 0 };
 let effects = { widePaddle: 0, fireBall: 0, megaBall: 0 };
-let stageTimer = 0;
+let stageTimerMs = 0;
 let nameInput = '';
 let frameCount = 0;
 let comboDisplay = { value: 0, scale: 1, alpha: 0, label: '' };
 let depthPulse = 0;
+let animationTimeMs = 0;
+let gameplayTimeMs = 0;
+let fixedClock = { lastTimestamp: null, accumulatorMs: 0 };
 
 // ═══════════════════════════════════════════════════════════════
 // BALL MANAGEMENT
@@ -1631,17 +1664,25 @@ function loadLevel(idx) {
 // ═══════════════════════════════════════════════════════════════
 // INPUT HANDLING
 // ═══════════════════════════════════════════════════════════════
-canvas.addEventListener('mousemove', e => {
+const pressedKeys = new Set();
+
+function updatePointerPosition(event) {
     const rect = canvas.getBoundingClientRect();
-    mouseX = (e.clientX - rect.left) * (W / rect.width);
-    mouseY = (e.clientY - rect.top) * (H / rect.height);
+    mouseX = (event.clientX - rect.left) * (W / rect.width);
+    mouseY = (event.clientY - rect.top) * (H / rect.height);
+}
+
+canvas.addEventListener('pointermove', updatePointerPosition);
+canvas.addEventListener('pointerdown', (event) => {
+    updatePointerPosition(event);
+    canvas.focus({ preventScroll: true });
+    if (event.pointerId !== undefined) canvas.setPointerCapture?.(event.pointerId);
 });
 
 canvas.addEventListener('click', (e) => {
     ensureAudio();
-    const rect = canvas.getBoundingClientRect();
-    mouseX = (e.clientX - rect.left) * (W / rect.width);
-    mouseY = (e.clientY - rect.top) * (H / rect.height);
+    updatePointerPosition(e);
+    canvas.focus({ preventScroll: true });
 
     if (state === 'MENU') {
         for (const btn of themeButtons) {
@@ -1677,6 +1718,11 @@ function quitGame() {
 }
 
 document.addEventListener('keydown', e => {
+    if (['ArrowLeft', 'ArrowRight', 'a', 'A', 'd', 'D'].includes(e.key)) {
+        pressedKeys.add(e.key.toLowerCase());
+        if (e.key.startsWith('Arrow')) e.preventDefault();
+    }
+
     if (state === 'MENU') {
         if (e.key === 'Enter' || e.key === ' ') { ensureAudio(); startGame(); }
         return;
@@ -1707,6 +1753,22 @@ document.addEventListener('keydown', e => {
         }
     }
 });
+
+document.addEventListener('keyup', (e) => {
+    pressedKeys.delete(e.key.toLowerCase());
+});
+
+function pauseForInterruption() {
+    pressedKeys.clear();
+    fixedClock = { lastTimestamp: null, accumulatorMs: 0 };
+    if (state === 'PLAYING') state = 'PAUSED';
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pauseForInterruption();
+    else fixedClock = { lastTimestamp: null, accumulatorMs: 0 };
+});
+window.addEventListener('blur', pauseForInterruption);
 
 // ═══════════════════════════════════════════════════════════════
 // COLLISION DETECTION
@@ -1794,25 +1856,27 @@ function applyItem(item) {
 // ═══════════════════════════════════════════════════════════════
 function startGame() {
     score = 0; lives = START_LIVES; level = 0;
-    maxCombo = 0; combo = 0; particles = []; floatingTexts = [];
+    maxCombo = 0; combo = 0; lastHitTime = 0; particles = []; floatingTexts = [];
     impactBursts = [];
     impactSlices = [];
     depthPulse = 0;
+    gameplayTimeMs = 0;
     shake = { x: 0, y: 0, intensity: 0, kickX: 0, kickY: 0 };
-    state = 'STAGE_INTRO'; stageTimer = 90;
+    state = 'STAGE_INTRO'; stageTimerMs = STAGE_INTRO_DURATION_MS;
     loadLevel(0);
 }
 function nextLevel() {
     level++;
-    state = 'STAGE_INTRO'; stageTimer = 90;
+    state = 'STAGE_INTRO'; stageTimerMs = STAGE_INTRO_DURATION_MS;
     loadLevel(level);
 }
 
-const DT_MS = 1000 / 60;
-
-function update() {
-    frameCount++;
-    updateStars();
+function update(stepMs = FIXED_STEP_MS) {
+    animationTimeMs += stepMs;
+    if (!prefersReducedMotion) {
+        frameCount++;
+        updateStars();
+    }
     updateParticles();
     impactBursts = advanceImpactBursts(impactBursts);
     impactSlices = advanceImpactSlices(impactSlices);
@@ -1840,14 +1904,23 @@ function update() {
 
     if (comboDisplay.alpha > 0) { comboDisplay.alpha *= 0.97; comboDisplay.scale = lerp(comboDisplay.scale, 1, 0.1); }
 
-    if (state === 'STAGE_INTRO') { stageTimer--; if (stageTimer <= 0) state = 'PLAYING'; return; }
-    if (state === 'STAGE_CLEAR') { stageTimer--; if (stageTimer <= 0) nextLevel(); return; }
+    if (state === 'STAGE_INTRO') {
+        stageTimerMs -= stepMs;
+        if (stageTimerMs <= 0) state = 'PLAYING';
+        return;
+    }
+    if (state === 'STAGE_CLEAR') {
+        stageTimerMs -= stepMs;
+        if (stageTimerMs <= 0) nextLevel();
+        return;
+    }
     if (state !== 'PLAYING') return;
+    gameplayTimeMs += stepMs;
 
     // Effect timers
     for (const key of Object.keys(effects)) {
         if (effects[key] > 0) {
-            effects[key] -= DT_MS;
+            effects[key] -= stepMs;
             if (effects[key] <= 0) {
                 effects[key] = 0;
                 if (key === 'widePaddle') paddle.targetW = PADDLE_BASE_W;
@@ -1856,6 +1929,9 @@ function update() {
     }
 
     // Paddle
+    const keyboardDirection = Number(pressedKeys.has('arrowright') || pressedKeys.has('d'))
+        - Number(pressedKeys.has('arrowleft') || pressedKeys.has('a'));
+    if (keyboardDirection !== 0) mouseX += keyboardDirection * PADDLE_KEYBOARD_SPEED;
     paddle.x = clamp(mouseX, paddle.w / 2, W - paddle.w / 2);
     paddle.w = lerp(paddle.w, paddle.targetW, 0.12);
 
@@ -1935,7 +2011,7 @@ function update() {
                 playSound('brick');
 
                 // Combo
-                const now = performance.now();
+                const now = gameplayTimeMs;
                 combo = (now - lastHitTime < COMBO_WINDOW_MS) ? combo + 1 : 1;
                 lastHitTime = now;
                 if (combo > maxCombo) maxCombo = combo;
@@ -2033,7 +2109,7 @@ function update() {
         if (frameOutcome.clearItems) items = [];
         playSound('levelClear');
         spawnCelebration(140);
-        state = 'STAGE_CLEAR'; stageTimer = 120;
+        state = 'STAGE_CLEAR'; stageTimerMs = STAGE_CLEAR_DURATION_MS;
         return;
     }
 
@@ -3188,7 +3264,7 @@ function renderMenuScreen() {
 
     ctx.fillStyle = 'rgba(255,255,255,0.34)';
     ctx.font = '13px sans-serif';
-    ctx.fillText('Mouse: Move Paddle  |  Click / Space: Shoot  |  ESC / P: Pause  |  Q: Quit', W / 2, H * 0.41);
+    ctx.fillText('Mouse / Touch / ← → / A D: Move  |  Click / Space: Shoot  |  ESC / P: Pause  |  Q: Quit', W / 2, H * 0.41);
     ctx.fillText('Worlds change visuals, not rules.', W / 2, H * 0.45);
     renderRankingStorageNotice(H * 0.44);
 
@@ -3261,7 +3337,7 @@ function renderPausedScreen() {
 }
 
 function renderStageIntro() {
-    const progress = 1 - stageTimer / 90;
+    const progress = 1 - stageTimerMs / STAGE_INTRO_DURATION_MS;
     const alpha = progress < 0.3 ? progress / 0.3 : progress > 0.7 ? (1 - progress) / 0.3 : 1;
     ctx.globalAlpha = Math.min(alpha * 1.5, 1);
     neonText(`STAGE ${level + 1}`, W / 2, H * 0.38, 62, theme.text1, 28);
@@ -3396,8 +3472,10 @@ function getRenderSnapshot() {
         monolith: { lightAlpha: 0.92, lightScale: 0.14 },
     };
     const gameplayTuning = gameplayThemeTuning[currentThemeKey] || { lightAlpha: 1, lightScale: 0 };
+    const backgroundRendererReady = !!(threeRenderer && threeRenderer.isReady());
     const gameplayRendererReady = !!(
-        threeGameplayRenderer
+        backgroundRendererReady
+        && threeGameplayRenderer
         && threeGameplayRenderer.isReady()
         && state !== 'MENU'
         && state !== 'RANKING'
@@ -3410,7 +3488,7 @@ function getRenderSnapshot() {
         useThreeGameplay: gameplayRendererReady,
     });
     const effectBridge = resolveThreeEffectBridge({
-        rendererReady: !!(threeRenderer && threeRenderer.isReady()),
+        rendererReady: backgroundRendererReady,
         theme,
         effects,
         balls,
@@ -3459,7 +3537,7 @@ function getRenderSnapshot() {
     });
 
     return {
-        time: performance.now() * 0.001,
+        time: prefersReducedMotion ? 0 : animationTimeMs * 0.001,
         themeKey: currentThemeKey,
         flashAlpha: 0,
         shakeX: shake.x,
@@ -3546,8 +3624,24 @@ function render() {
 // ═══════════════════════════════════════════════════════════════
 // GAME LOOP
 // ═══════════════════════════════════════════════════════════════
-function loop() {
-    update();
+function loop(timestamp) {
+    if (document.hidden) {
+        fixedClock = { lastTimestamp: null, accumulatorMs: 0 };
+        requestAnimationFrame(loop);
+        return;
+    }
+
+    fixedClock = advanceFixedStepClock({
+        timestamp,
+        lastTimestamp: fixedClock.lastTimestamp,
+        accumulatorMs: fixedClock.accumulatorMs,
+        stepMs: FIXED_STEP_MS,
+        maxDeltaMs: MAX_FRAME_DELTA_MS,
+    });
+
+    for (let step = 0; step < fixedClock.steps; step++) {
+        update(FIXED_STEP_MS);
+    }
     render();
     requestAnimationFrame(loop);
 }

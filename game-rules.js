@@ -77,6 +77,36 @@
         return Math.max(min, Math.min(max, value));
     }
 
+    function advanceFixedStepClock({
+        timestamp,
+        lastTimestamp = null,
+        accumulatorMs = 0,
+        stepMs,
+        maxDeltaMs,
+    }) {
+        if (!Number.isFinite(timestamp) || !Number.isFinite(stepMs) || stepMs <= 0) {
+            throw new TypeError('A finite timestamp and positive stepMs are required');
+        }
+
+        if (lastTimestamp === null || !Number.isFinite(lastTimestamp)) {
+            return { lastTimestamp: timestamp, accumulatorMs: 0, steps: 0, frameDeltaMs: 0 };
+        }
+
+        const safeMaxDelta = Number.isFinite(maxDeltaMs) && maxDeltaMs >= 0
+            ? maxDeltaMs
+            : stepMs;
+        const frameDeltaMs = clamp(timestamp - lastTimestamp, 0, safeMaxDelta);
+        const totalMs = Math.max(0, accumulatorMs) + frameDeltaMs;
+        const steps = Math.floor((totalMs + stepMs * 1e-9) / stepMs);
+
+        return {
+            lastTimestamp: timestamp,
+            accumulatorMs: Math.max(0, totalMs - steps * stepMs),
+            steps,
+            frameDeltaMs,
+        };
+    }
+
     function densifyStageRows(rows, stageIndex) {
         const passes = getStageDensityPasses(stageIndex);
         if (passes <= 0) return cloneRows(rows);
@@ -151,6 +181,41 @@
             .slice(0, Math.max(0, maxEntries || 0));
     }
 
+    function sanitizeRankingEntries(ranking) {
+        const entries = [];
+        let invalidCount = 0;
+
+        for (const entry of ranking || []) {
+            const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+            const score = entry?.score;
+            const level = entry?.level;
+            const date = typeof entry?.date === 'string' ? entry.date.trim() : '';
+
+            if (
+                name.length === 0
+                || name.length > 10
+                || !Number.isSafeInteger(score)
+                || score < 0
+                || !Number.isSafeInteger(level)
+                || level < 1
+                || date.length === 0
+                || date.length > 40
+            ) {
+                invalidCount++;
+                continue;
+            }
+
+            entries.push({
+                name,
+                score,
+                level,
+                date,
+            });
+        }
+
+        return { entries, invalidCount };
+    }
+
     function getRankingLayout(maxEntries) {
         if ((maxEntries ?? 0) >= 10) {
             return {
@@ -196,19 +261,31 @@
             return { ranking: [], error: 'unavailable' };
         }
 
+        let raw;
         try {
-            const raw = storage.getItem(key);
-            if (!raw) return { ranking: [], error: null };
-
-            const ranking = JSON.parse(raw);
-            if (!Array.isArray(ranking)) {
-                return { ranking: [], error: 'invalid_data' };
-            }
-
-            return { ranking, error: null };
+            raw = storage.getItem(key);
         } catch {
             return { ranking: [], error: 'unavailable' };
         }
+
+        if (!raw) return { ranking: [], error: null };
+
+        let ranking;
+        try {
+            ranking = JSON.parse(raw);
+        } catch {
+            return { ranking: [], error: 'invalid_data' };
+        }
+
+        if (!Array.isArray(ranking)) {
+            return { ranking: [], error: 'invalid_data' };
+        }
+
+        const { entries, invalidCount } = sanitizeRankingEntries(ranking);
+        return {
+            ranking: entries,
+            error: invalidCount > 0 ? 'invalid_data' : null,
+        };
     }
 
     function pickMultiBallSource(balls, fallback, random = Math.random) {
@@ -547,6 +624,7 @@
     }
 
     return {
+        advanceFixedStepClock,
         advanceImpactBursts,
         advanceImpactSlices,
         collectActiveBulletGlows,

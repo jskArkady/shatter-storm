@@ -3,8 +3,11 @@
 
 const THREE_NS = globalThis.THREE;
 if (!THREE_NS) return;
-const ShatterLogic = globalThis.ShatterLogic || {};
-const { isBrickDepthMeshEnabled = () => true } = ShatterLogic;
+const ShatterLogic = globalThis.ShatterLogic;
+if (!ShatterLogic || typeof ShatterLogic.isBrickDepthMeshEnabled !== 'function') {
+    throw new Error('ShatterLogic must load before three-renderer.js');
+}
+const { isBrickDepthMeshEnabled } = ShatterLogic;
 
 const {
     AdditiveBlending,
@@ -35,6 +38,14 @@ const {
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const rand = (min, max) => Math.random() * (max - min) + min;
+
+function installContextLossFallback(target) {
+    target.canvas.addEventListener('webglcontextlost', (event) => {
+        event.preventDefault();
+        target.ready = false;
+        target.canvas.style.display = 'none';
+    });
+}
 
 function createLineMaterial(color, opacity = 0.22) {
     return new LineBasicMaterial({
@@ -982,13 +993,13 @@ function getGameplayThemeProfile(themeKey) {
 }
 
 class ShatterThreeBackgroundRenderer {
-    constructor({ canvas, width, height }) {
+    constructor({ canvas, width, height, maxTrails = 200 }) {
         this.canvas = canvas;
         this.width = width;
         this.height = height;
         this.ready = false;
         this.maxParticles = 500;
-        this.maxTrails = 200;
+        this.maxTrails = maxTrails;
         this.maxTrailPoints = 12;
         this.maxImpactBursts = 96;
 
@@ -1009,6 +1020,7 @@ class ShatterThreeBackgroundRenderer {
         this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5));
         this.renderer.setSize(width, height, false);
         this.renderer.setClearColor(0x000000, 0);
+        installContextLossFallback(this);
 
         this.scene = new Scene();
         this.camera = new OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, 0.1, 1200);
@@ -1267,13 +1279,13 @@ class ShatterThreeBackgroundRenderer {
 }
 
 class ShatterThreeGameplayRenderer {
-    constructor({ canvas, width, height }) {
+    constructor({ canvas, width, height, maxBalls = 220 }) {
         this.canvas = canvas;
         this.width = width;
         this.height = height;
         this.ready = false;
         this.maxBricks = 1600;
-        this.maxBalls = 220;
+        this.maxBalls = maxBalls;
         this.activeBrickStyle = null;
         this.activeThemeKey = null;
         this.dummy = new Object3D();
@@ -1298,6 +1310,7 @@ class ShatterThreeGameplayRenderer {
         this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5));
         this.renderer.setSize(width, height, false);
         this.renderer.setClearColor(0x000000, 0);
+        installContextLossFallback(this);
 
         this.scene = new Scene();
         this.camera = new OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, 0.1, 1200);
@@ -1536,6 +1549,7 @@ class ShatterThreeOverlayRenderer {
         this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5));
         this.renderer.setSize(width, height, false);
         this.renderer.setClearColor(0x000000, 0);
+        installContextLossFallback(this);
 
         this.scene = new Scene();
         this.camera = new OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, 0.1, 1200);

@@ -49,6 +49,7 @@ body {
 #game {
     z-index: 3;
     cursor: none;
+    touch-action: none;
 }
 
 #scene3d-gameplay {
@@ -63,4 +64,10 @@ body {
 
 body.is-ui-cursor #game {
     cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body {
+        transition: none;
+    }
 }
